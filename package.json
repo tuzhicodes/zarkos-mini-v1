@@ -1,7 +1,7 @@
 {
-  "name": "tiny-llm",
+  "name": "zarkos-mini-v1",
   "version": "1.0.0",
-  "description": "A real, from-scratch decoder-only transformer (tiny GPT) trained and served entirely in Node.js",
+  "description": "ZarKos Mini v1 — a small, from-scratch decoder-only Transformer language model by TuZhi Codes (TuZhi Studio).",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
