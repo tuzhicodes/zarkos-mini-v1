@@ -1,6 +1,6 @@
 # ZarKos Mini v1
 
-A real, from-scratch decoder-only transformer (GPT-style), built with **pure `@tensorflow/tfjs` tensor ops** — not the Layers API. Every weight is a hand-defined `tf.Variable`, so this is an actual small language model, not a wrapper around a pre-built one.
+A real, from-scratch decoder-only transformer (TuZhi/zarkos-mini-v1), built with **pure `@tensorflow/tfjs` tensor ops** — not the Layers API. Every weight is a hand-defined `tf.Variable`, so this is an actual small language model, not a wrapper around a pre-built one.
 
 By **TuZhi Codes** (TuZhi Studio).
 
