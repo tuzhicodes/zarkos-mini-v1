@@ -25,6 +25,22 @@ It is implemented in Node.js with `@tensorflow/tfjs` using raw tensor operations
 The model ID is a project identifier used by this repository. It does not imply that the model is automatically published to a model hub or hosted inference service.
 
 ---
+# ZarKos Mini — 100-Step Training Quality Test
+
+> **ZarKos Mini model was tested after 100 training steps.**
+> The results below show the model's response quality using only the
+> chat and math datasets included during training.
+
+## LLM Response Proof
+
+The following example demonstrates the model's actual response quality
+after 100 training steps.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/tuzhicodes/zarkos-mini-v1/refs/heads/main/image/proof1.jpg" alt="LLM Response Proof">
+</p>
+
+---
 
 ## What it can be used for
 
