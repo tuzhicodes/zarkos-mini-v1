@@ -1,165 +1,28 @@
 # ZarKos Mini v1
 
-**ZarKos Mini v1** is a small, from-scratch decoder-only Transformer language model by **TuZhi Codes**, developed under **TuZhi Studio**.
+A real, from-scratch decoder-only Transformer language model, trained and served entirely in Node.js. It does not call, wrap, or proxy any external LLM — the tokenizer, the training loop, and the model itself are all implemented here.
 
-It is implemented in Node.js with `@tensorflow/tfjs` using raw tensor operations rather than a high-level model wrapper. The repository contains the model architecture, tokenizer, dataset pipeline, training loop, checkpointing, inference code, terminal interface, and a lightweight web UI.
-
-> **Project status:** This is a small, experimental language model. It is a real trainable neural language model, but it is not intended to compete with large production LLMs. Output quality depends heavily on the training data, model configuration, and amount of training.
-
----
-
-## Model information
-
-| Field | Value |
+| | |
 |---|---|
-| **Name** | ZarKos Mini v1 |
+| **Model** | ZarKos Mini v1 |
 | **Model ID** | `tuzhi/zarkos-mini-v1` |
 | **Owner** | TuZhi Codes |
-| **Studio** | TuZhi Studio |
-| **Architecture** | Decoder-only Transformer |
-| **Framework** | Node.js + `@tensorflow/tfjs` |
-| **Tokenizer** | From-scratch BPE tokenizer |
-| **Training format** | JSONL conversations |
+| **Built by** | TuZhi Studio |
+| **Repository** | https://github.com/tuzhicodes/zarkos-mini-v1 |
 | **License** | MIT |
 
-The model ID is a project identifier used by this repository. It does not imply that the model is automatically published to a model hub or hosted inference service.
+This project is open source. Fork it, fine-tune it on your own data, rebrand it, or deploy it as-is — no dataset or checkpoint from the original build is included, so you start from a clean slate.
 
----
-# ZarKos Mini — 100-Step Training Quality Test
+## What's in here
 
-> **ZarKos Mini model was tested after 100 training steps.**
-> The results below show the model's response quality using only the
-> chat and math datasets included during training.
-
-## LLM Response Proof
-
-The following example demonstrates the model's actual response quality
-after 100 training steps.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/tuzhicodes/zarkos-mini-v1/refs/heads/main/image/proof1.jpg" alt="LLM Response Proof">
-</p>
-
----
-
-## What it can be used for
-
-ZarKos Mini v1 is suitable for:
-
-- experimenting with small language models
-- learning how decoder-only Transformers work
-- training a custom chatbot on your own conversation data
-- testing tokenizer and dataset designs
-- running lightweight local inference
-- experimenting with sampling parameters
-- comparing checkpoints during training
-- building small Node.js applications around a custom model
-- learning about checkpoint-based training and model evaluation
-
-It can also be adapted for other small language-model experiments by changing the configuration and dataset.
-
-### What it is not
-
-ZarKos Mini v1 should **not** be presented as a general-purpose frontier LLM. A small model has limited capacity and context, and it can produce incorrect, repetitive, nonsensical, or unsafe text.
-
-Do not rely on its output for medical, legal, financial, security, or other high-stakes decisions.
-
----
-
-## Features
-
-### Model
-
-- From-scratch decoder-only Transformer
-- Multi-head self-attention
-- Feed-forward network
-- Layer normalization
-- Hand-defined TensorFlow.js variables
-- Configurable embedding size, layers, attention heads, context length, and FFN size
-
-### Tokenizer
-
-- From-scratch BPE tokenizer
-- Vocabulary trained from the project's JSONL data
-- Special chat tokens:
-  - `<pad>`
-  - `<unk>`
-  - `<bos>`
-  - `<eos>`
-  - `<|user|>`
-  - `<|assistant|>`
-  - `<|end|>`
-
-### Dataset and training
-
-- Reads every `*.jsonl` file from the configured data directory
-- Conversation-based training format
-- Train/validation split before token windowing
-- Per-conversation training windows
-- 50% overlapping windows for longer conversations
-- Padding for short conversations
-- Configurable batch size, epochs, learning rate, context length, and validation fraction
-- Checkpoint saving during training and at epoch completion
-- Resume support from an existing checkpoint
-
-### Inference
-
-- Terminal chat mode
-- Web chat interface
-- Conversation history support in the web UI/API
-- Temperature sampling
-- Top-k sampling
-- Configurable maximum generated tokens
-- Automatic stop at the trained end-of-turn token
-
-### Evaluation
-
-The repository includes a fixed-prompt evaluation command:
-
-```bash
-npm run eval
-```
-
-It uses deterministic greedy-style decoding (`temperature=0`, `topK=1`) so outputs from different checkpoints can be compared more consistently.
-
-### Web UI and server
-
-- Lightweight Express server
-- Mobile-friendly chat UI
-- Training control from the web UI
-- Live training logs
-- Start/stop training controls
-- Model status endpoint
-- Hosting-panel-friendly `/health` endpoint
-- Automatic checkpoint hot-reload
-- Public static files limited to `ui/public/`
-- Basic request validation and visible server errors
-
-### Resource-conscious behavior
-
-The project includes safeguards intended for smaller hosting environments:
-
-- configurable model size
-- configurable batch/context size
-- automatic batch/context reduction after certain pre-checkpoint `SIGKILL`/OOM situations in the web training process
-- checkpointing during long epochs
-- model disposal during hot reload to reduce TensorFlow.js tensor leaks
-- project-root-relative paths so launching from another working directory does not silently use the wrong data/checkpoint folders
-
-These are safeguards, not a guarantee that every hosting plan can train the model.
-
----
-
-# Quick start
+- **Training** — a small BPE tokenizer and a decoder-only Transformer, trained on your own JSONL conversation data.
+- **Web dashboard** — a password-protected page to start/stop training and watch live logs. See [`ui/README.md`](ui/README.md) for details.
+- **Inference API** — an API-key-protected chat endpoint, plus an OpenAI-compatible `/v1/chat/completions` endpoint so it can be dropped into existing chat clients.
 
 ## Requirements
 
-You need:
-
-- Node.js
+- Node.js 18+
 - npm
-- enough RAM for the model/configuration you choose
-- a writable project directory
 
 Install dependencies:
 
@@ -167,470 +30,157 @@ Install dependencies:
 npm install
 ```
 
----
+## 1. Set up your environment
 
-## Add training data
+Copy the example file and edit it:
 
-Put one or more `.jsonl` files inside `data/`.
-
-Each line should contain one conversation object:
-
-```json
-{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello!"}]}
+```bash
+cp .env.example .env
 ```
 
-Multiple conversation files are supported.
-
-For example:
-
-```text
-data/
-├── chat.jsonl
-├── knowledge.jsonl
-└── examples.jsonl
-```
-
-The loader reads all files ending in `.jsonl` from the configured data directory.
-
-### Data quality matters
-
-The model learns statistical patterns from the data you provide. Clean, diverse, correctly formatted data is generally more useful than simply adding large amounts of noisy or duplicated data.
-
-Do not put passwords, API keys, private conversations, personal secrets, or other sensitive information into a public training dataset.
-
----
-
-# Configuration with `.env`
-
-ZarKos Mini v1 reads configuration from a `.env` file in the project root.
-
-Create:
-
-```text
-.env
-```
-
-Example configuration:
+At minimum, change these before running anything publicly:
 
 ```env
-# -----------------------------
-# Model identity
-# -----------------------------
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change-this-password
+MODEL_API_KEY=change-this-api-key
+```
+
+`ADMIN_USERNAME` / `ADMIN_PASSWORD` control who can log into the training dashboard. `MODEL_API_KEY` controls who can call the inference API. Never commit a real `.env` file — it's already excluded via `.gitignore`.
+
+The model's name, ID, owner, and brand are also read from `.env`, so you can rebrand the whole app without touching any code:
+
+```env
 MODEL_NAME=ZarKos Mini v1
 MODEL_ID=tuzhi/zarkos-mini-v1
 MODEL_OWNER=TuZhi Codes
 MODEL_BRAND=TuZhi Studio
-
-# -----------------------------
-# Server
-# -----------------------------
-START_MODE=serve
-HOST=0.0.0.0
-PORT=3000
-
-# -----------------------------
-# Data / checkpoints
-# -----------------------------
-DATA_DIR=data
-CHECKPOINT_DIR=checkpoint
-
-# -----------------------------
-# Tokenizer
-# -----------------------------
-VOCAB_SIZE=8000
-
-# -----------------------------
-# Model architecture
-# -----------------------------
-CONTEXT_LENGTH=128
-N_EMBD=128
-N_HEAD=4
-N_LAYER=4
-FFN_HIDDEN=512
-
-# -----------------------------
-# Training
-# -----------------------------
-BATCH_SIZE=16
-EPOCHS=5
-LEARNING_RATE=0.0003
-VAL_FRACTION=0.05
-
-# Save a checkpoint every N steps
-CHECKPOINT_EVERY=500
 ```
 
-These are configuration examples based on the values currently defined by the repository's `model/config.js`. They are not a claim about the size or quality of every trained ZarKos Mini v1 checkpoint.
+## 2. Add your training data
 
-### Important
+Drop your own conversation datasets into `data/` as `.jsonl` files. Every line should look like this:
 
-Some architecture settings determine tensor shapes. If you change:
-
-```text
-N_EMBD
-N_HEAD
-N_LAYER
-FFN_HIDDEN
-CONTEXT_LENGTH
+```json
+{"messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"Hi!"}]}
 ```
 
-an existing checkpoint may no longer be compatible.
+Every `.jsonl` file in `data/` is loaded automatically. The folder ships empty — this repo does not include any training data or pretrained checkpoint, so the model knows nothing until you train it.
 
-For a changed architecture, remove the old `checkpoint/` directory and train a new checkpoint.
+Before building the tokenizer and training windows, the dataset is split into training and held-out validation conversations, so validation loss reflects data the model has never seen.
 
-Also make sure:
+## 3. Train the model
 
-```text
-N_EMBD % N_HEAD == 0
-```
-
-because the embedding dimension must divide evenly across attention heads.
-
-### Secrets
-
-Do not place real API keys, passwords, tokens, or other secrets in `.env` if the file will be committed to a public repository.
-
-If you later add secrets to the project, keep them outside source control and add `.env` to `.gitignore`.
-
----
-
-# Train the model
-
-Run:
+From the project root, either run training directly:
 
 ```bash
 npm run train
 ```
 
-The training process:
-
-1. loads the JSONL conversations
-2. trains/loads the project tokenizer as required
-3. splits conversations into training and validation sets
-4. builds token windows
-5. performs next-token prediction training
-6. periodically saves checkpoints
-7. saves the completed checkpoint for later inference
-
-The checkpoint directory contains generated model artifacts such as:
-
-```text
-checkpoint/
-├── tokenizer.json
-├── manifest.json
-└── weights.bin
-```
-
-Do not manually edit generated checkpoint files unless you know the expected format.
-
----
-
-# Chat with ZarKos Mini v1
-
-## Terminal
-
-```bash
-npm run chat
-```
-
-The terminal chat loads the latest available checkpoint.
-
-If there is no checkpoint yet, train the model first:
-
-```bash
-npm run train
-```
-
-## Web UI
-
-Start the server:
-
-```bash
-npm run serve
-```
-
-Then open:
-
-```text
-http://localhost:3000
-```
-
-The UI provides:
-
-- **Chat** — interact with the loaded model
-- **Train** — start/stop training and inspect live logs
-
-The server can also be started with:
+or start the server and use the dashboard:
 
 ```bash
 npm start
 ```
 
-With the default configuration, a bare:
+Then open the server address in a browser, log in with your `.env` credentials, and click **Start Training**. The dashboard only handles authentication and training controls — it has no chat interface.
+
+## 4. Talk to the model
+
+**Terminal chat**, once you have a trained checkpoint:
 
 ```bash
-node index.js
+npm run chat
 ```
 
-starts the web server.
-
----
-
-# Evaluation
-
-Run the fixed evaluation prompts:
+**Inference API**, protected by `MODEL_API_KEY`:
 
 ```bash
-npm run eval
+curl -X POST http://localhost:24705/api/chat \
+  -H 'Content-Type: application/json' \
+  -H 'x-api-key: your-api-key' \
+  -d '{"message":"hello","maxNewTokens":64}'
 ```
 
-This is useful when comparing checkpoints.
+An `Authorization: Bearer your-api-key` header works the same way.
 
-It does **not** provide a standardized benchmark score. It is simply a small, repeatable project-level check intended to make checkpoint-to-checkpoint comparisons easier.
+**OpenAI-compatible endpoint**, for clients that expect that shape:
 
-For meaningful model evaluation, use a larger held-out test set and task-specific metrics rather than relying only on a few example prompts.
-
----
-
-# HTTP API
-
-The web server exposes a small API.
-
-## Health
-
-```http
-GET /health
+```bash
+curl http://localhost:24705/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer your-api-key' \
+  -d '{"model":"tuzhi/zarkos-mini-v1","messages":[{"role":"user","content":"hello"}],"max_tokens":64}'
 ```
 
-Expected response:
+## How the model works
 
-```text
-ok
-```
+- Learned token embeddings, tied to the output projection
+- Learned positional embeddings
+- Causal multi-head self-attention with pre-layer normalization
+- GELU feed-forward blocks
+- Next-token cross-entropy training
+- Temperature / top-k sampling with repetition control at inference
+- A small custom BPE tokenizer trained from your own dataset
 
-## Model status
+The architecture defaults to roughly **6.8M trainable parameters** (see `model/config.js`), but this scales with the size of your training data and how long you train. The exact parameter count is printed when the server starts. This is a genuine, working neural network — not a wrapper around a larger model — but its quality depends entirely on your dataset size and quality, the tokenizer, and training time. It should not be expected to match large pretrained foundation models.
 
-```http
-GET /api/status
-```
+## Changing the architecture
 
-Returns information such as whether a checkpoint is loaded and the currently loaded parameter/vocabulary counts.
+If you change any of `N_EMBD`, `N_HEAD`, `N_LAYER`, `FFN_HIDDEN`, `VOCAB_SIZE`, or `CONTEXT_LENGTH` in `.env`, any existing checkpoint becomes incompatible. Delete or move the `checkpoint/` folder and train again from scratch.
 
-## Branding
+## API endpoints
 
-```http
-GET /api/branding
-```
-
-Returns the configured model identity.
-
-## Chat
-
-```http
-POST /api/chat
-Content-Type: application/json
-```
-
-Example:
-
-```json
-{
-  "message": "Hello",
-  "history": []
-}
-```
-
-Optional generation fields include:
-
-```json
-{
-  "message": "Tell me a short joke",
-  "temperature": 0.8,
-  "maxNewTokens": 100,
-  "history": [
-    {
-      "role": "user",
-      "content": "Hi"
-    },
-    {
-      "role": "assistant",
-      "content": "Hello!"
-    }
-  ]
-}
-```
-
-The API validates the message and supported history roles before generation.
-
----
-
-# Project structure
-
-```text
-zarkos-mini-v1/
-├── data/
-│   └── example.jsonl
-│
-├── model/
-│   ├── checkpoint.js
-│   ├── config.js
-│   ├── dataset.js
-│   ├── generate.js
-│   ├── tokenizer.js
-│   ├── train.js
-│   └── transformer.js
-│
-├── ui/
-│   ├── public/
-│   │   └── main.html
-│   └── server.js
-│
-├── checkpoint/          # generated after training
-├── index.js
-├── package.json
-├── package-lock.json
-├── LICENSE
-└── README.md
-```
-
-### Main components
-
-| File | Purpose |
+| Endpoint | Auth |
 |---|---|
-| `index.js` | CLI entry point for train/serve/chat/eval |
-| `model/transformer.js` | Transformer model implementation |
-| `model/tokenizer.js` | BPE tokenizer |
-| `model/dataset.js` | JSONL loading, chat formatting, splitting, and windows |
-| `model/train.js` | Training loop |
-| `model/generate.js` | Text generation and sampling |
-| `model/checkpoint.js` | Checkpoint save/load |
-| `model/config.js` | Environment-based configuration |
-| `ui/server.js` | Express server and model/training API |
-| `ui/public/main.html` | Web interface |
+| `/api/auth/login`, `/api/auth/logout`, `/api/auth/me` | Dashboard session cookie |
+| `/api/training/*` (start/stop/status) | Dashboard session cookie |
+| `/api/chat` | `MODEL_API_KEY` |
+| `/v1/models`, `/v1/chat/completions` | `MODEL_API_KEY` |
+| `/health` | Public (for hosting/uptime checks) |
 
----
+The web page never renders the API key or admin password back to the browser.
 
-# Training data format
+## CLI commands
 
-The expected format is:
-
-```json
-{"messages":[{"role":"user","content":"What is 2 + 2?"},{"role":"assistant","content":"2 + 2 = 4."}]}
+```bash
+npm start          # start the web server (uses START_MODE from .env)
+npm run serve      # start the web server directly
+npm run train      # train or resume training
+npm run chat       # chat with the current checkpoint in the terminal
+npm run eval       # run a fixed set of prompts to compare checkpoints
 ```
 
-Supported conversation roles are primarily:
+## Hosting
 
-```text
-user
-assistant
-```
+This app is built to run anywhere Node.js runs — a VPS, a container, or a managed Node hosting panel. It has no native dependencies (TensorFlow.js runs on the pure JS CPU backend), so there's nothing extra to compile at deploy time.
 
-Other roles are handled as plain context by the current dataset formatter and should be used deliberately.
+A few things that make deployment easier:
 
-Keep each JSONL record valid JSON and keep the conversation structure consistent.
+- The server reads `.env` from the project's own folder, so it works even if your host launches the app from a different working directory.
+- If no start command/argument is given, the app defaults to `serve` mode, so a plain `node index.js` boots the web server instead of exiting.
+- The dashboard is installable as a PWA (see [`ui/README.md`](ui/README.md)) — useful if you want to check on training from your phone.
 
-Malformed JSONL lines are skipped with a warning rather than being silently treated as valid training examples.
+## Before going public
 
----
+1. Set a strong, unique `ADMIN_PASSWORD`.
+2. Set a strong, random `MODEL_API_KEY`.
+3. Restrict `API_CORS_ORIGIN` to your actual domain if you don't need open browser access.
+4. Watch validation loss, not just training loss, to judge whether the model is actually learning.
+5. Keep `.env` out of version control (it already is, via `.gitignore`).
 
-# Checkpoints and resuming
+## Fine-tuning / forking this project
 
-Training creates a checkpoint that can be loaded for inference.
+Everything needed to retrain from zero is in `model/`. To build your own version:
 
-The training system also saves checkpoints during long runs according to:
+1. Fork the repo.
+2. Replace the contents of `data/` with your own JSONL conversations.
+3. Adjust the architecture settings in `.env` to fit your hardware and dataset size.
+4. Run `npm run train`.
+5. Update `MODEL_NAME` / `MODEL_ID` / `MODEL_OWNER` / `MODEL_BRAND` in `.env` to rebrand it as your own.
 
-```env
-CHECKPOINT_EVERY=500
-```
+No code changes are required for any of the above.
 
-If training is stopped after a checkpoint has been written, the project can use the available checkpoint when training is run again.
+## License
 
-Changing architecture-related settings after a checkpoint exists can make the old weights incompatible. Treat architecture changes as a new training run.
-
----
-
-# Responsible use
-
-ZarKos Mini v1 is experimental software and an experimental language model.
-
-The model can:
-
-- hallucinate information
-- repeat training patterns
-- generate incorrect statements
-- produce low-quality or incomplete answers
-- behave differently depending on sampling settings
-- fail on tasks outside its training distribution
-
-The repository does not claim that the model is factual, safe, unbiased, or suitable for high-stakes use.
-
-If you deploy the model publicly, add the application-level controls appropriate for your environment, such as authentication, rate limiting, request-size limits, logging/privacy controls, and abuse protection.
-
-Never expose private training data or server secrets through a public deployment.
-
----
-
-# Development notes
-
-This project is intentionally small and understandable rather than optimized for frontier-scale performance.
-
-Its main purpose is to provide a practical, inspectable implementation of:
-
-```text
-JSONL data
-   ↓
-conversation formatting
-   ↓
-BPE tokenizer
-   ↓
-token windows
-   ↓
-decoder-only Transformer
-   ↓
-next-token training
-   ↓
-checkpoint
-   ↓
-text generation
-```
-
-The implementation can be modified for experiments with architecture, datasets, training schedules, tokenization, inference, and deployment.
-
----
-
-# Limitations
-
-ZarKos Mini v1 has deliberately modest resource requirements compared with large language models, but that also limits its capabilities.
-
-Performance depends on:
-
-- parameter count
-- training data quality and size
-- number of training steps/epochs
-- context length
-- tokenizer vocabulary
-- optimization settings
-- available compute
-- generation parameters
-
-A lower training loss does not automatically mean that a model is more useful for every task. Always evaluate the actual behavior you care about.
-
----
-
-# License
-
-ZarKos Mini v1 is released under the MIT License.
-
-Copyright © 2026 TuZhi Codes.
-
-See [`LICENSE`](LICENSE) for the full license text.
-
----
-
-# Credits
-
-**ZarKos Mini v1**  
-Model ID: `tuzhi/zarkos-mini-v1`
-
-Created by **TuZhi Codes**  
-**TuZhi Studio**
+MIT — see the `package.json` for details. Use it, modify it, ship it.
