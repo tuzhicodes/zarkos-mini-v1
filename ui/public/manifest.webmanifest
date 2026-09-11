@@ -1,0 +1,12 @@
+{
+  "name": "ZarKos Training",
+  "short_name": "ZarKos",
+  "description": "Training dashboard for ZarKos.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0c0d10",
+  "theme_color": "#0c0d10",
+  "orientation": "portrait-primary",
+  "icons": [{"src":"/icon/app.png","sizes":"192x192","type":"image/png","purpose":"any maskable"}]
+}
