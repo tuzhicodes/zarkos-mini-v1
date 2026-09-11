@@ -9,44 +9,79 @@ const { BPETokenizer } = require('../model/tokenizer');
 const { TinyGPT } = require('../model/transformer');
 const { loadCheckpointInto, checkpointExists } = require('../model/checkpoint');
 const { generateReply } = require('../model/generate');
+const {
+  login,
+  getSession,
+  clearSessionCookie,
+  destroySession,
+  requireLogin,
+  requireApiKey,
+  getCredential,
+} = require('../auth');
 
 const projectRoot = path.join(__dirname, '..');
-
 const app = express();
-app.use(express.json());
-// BUG FIX: this used to be `express.static(__dirname)`, which serves the
-// ENTIRE ui/ folder — including server.js itself — as downloadable static
-// files (anyone could open http://yourdomain/server.js and read your
-// server source). Now only ui/public/ (which contains just main.html) is
-// exposed publicly.
+
+app.use(express.json({ limit: '256kb' }));
+app.use((req, res, next) => {
+  const origin = process.env.API_CORS_ORIGIN || '*';
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-Key, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
-let model, tokenizer, ready = false;
+// Keep the installable PWA manifest truthful to the same .env branding used
+// by the dashboard/API. This avoids hard-coded model names in the UI shell.
+app.get('/manifest.webmanifest', (req, res) => {
+  const name = process.env.MODEL_NAME || 'ZarKos';
+  const shortName = name.replace(/\s+(Training|Model)$/i, '').slice(0, 20) || 'ZarKos';
+  res.type('application/manifest+json').json({
+    name: `${name} Training`,
+    short_name: shortName,
+    description: `Training dashboard for ${name}.`,
+    start_url: '/',
+    scope: '/',
+    display: 'standalone',
+    background_color: '#0c0d10',
+    theme_color: '#0c0d10',
+    orientation: 'portrait-primary',
+    icons: [{ src: '/icon/app.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' }],
+  });
+});
+
+let model = null;
+let tokenizer = null;
+let ready = false;
 let lastLoadedMtime = 0;
 
 function loadModel() {
-  // Always reset first so a stale/partial previous state is never reported
-  // as ready if loading fails partway through.
-  ready = false;
   if (!checkpointExists(config.checkpointDir)) {
+    ready = false;
     console.log(`No checkpoint found in ${config.checkpointDir} yet.`);
     return false;
   }
+
   try {
+    const candidateTokenizer = BPETokenizer.load(config.checkpointDir);
+    const candidateConfig = { ...config, vocabSize: candidateTokenizer.vocabSize };
+    const candidateModel = new TinyGPT(candidateConfig);
+    loadCheckpointInto(candidateModel, config.checkpointDir);
+
     const oldModel = model;
-    tokenizer = BPETokenizer.load(config.checkpointDir);
-    config.vocabSize = tokenizer.vocabSize;
-    model = new TinyGPT(config);
-    loadCheckpointInto(model, config.checkpointDir);
-    // BUG FIX: tf.js Variables aren't garbage-collected — replacing `model`
-    // without disposing the previous one's weight tensors leaks memory on
-    // every reload. Only matters now that loadModel() can run repeatedly
-    // (see the hot-reload polling below), not just once at startup.
-    if (oldModel) oldModel.dispose();
+    tokenizer = candidateTokenizer;
+    model = candidateModel;
+    config.vocabSize = candidateTokenizer.vocabSize;
     ready = true;
+    if (oldModel) oldModel.dispose();
+
     try {
       lastLoadedMtime = fs.statSync(path.join(config.checkpointDir, 'weights.bin')).mtimeMs;
-    } catch (e) { /* fine — next poll will just pick it up */ }
+    } catch (_) {}
+
     console.log(`Model loaded (${(model.countParams() / 1e6).toFixed(2)}M params, vocab ${tokenizer.vocabSize}).`);
     return true;
   } catch (err) {
@@ -56,17 +91,19 @@ function loadModel() {
   }
 }
 
+function requireInferenceConfig() {
+  const apiKey = getCredential('MODEL_API_KEY');
+  if (!apiKey || apiKey === 'change-this-api-key') {
+    console.warn('WARNING: MODEL_API_KEY is still using the default placeholder. Set it in .env before external use.');
+  }
+}
+
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'main.html'));
 });
 
-// Lightweight, dependency-free endpoint many hosting panels ping to decide
-// whether the app is "up". Plain text on purpose (fast, no JSON parsing
-// needed on the panel's side).
 app.get('/health', (req, res) => res.type('text').send('ok'));
 
-// Branding shown in the web UI header — pulled from .env so it can be
-// changed without touching any code. Sensible fallbacks if unset.
 app.get('/api/branding', (req, res) => {
   res.json({
     modelName: process.env.MODEL_NAME || 'Tiny LLM',
@@ -76,85 +113,141 @@ app.get('/api/branding', (req, res) => {
   });
 });
 
-app.get('/api/status', (req, res) => {
-  res.json({ ready, params: ready ? model.countParams() : 0, vocabSize: ready ? tokenizer.vocabSize : 0 });
+// ---------------- Admin authentication ----------------
+app.post('/api/auth/login', (req, res) => login(req, res));
+app.get('/api/auth/me', (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.json({ authenticated: false });
+  res.json({ authenticated: true, username: session.username, expiresAt: session.expiresAt });
+});
+app.post('/api/auth/logout', (req, res) => {
+  destroySession(req);
+  clearSessionCookie(res);
+  res.json({ ok: true });
 });
 
-app.post('/api/chat', (req, res) => {
-  if (!ready) return res.status(503).json({ error: 'Model not loaded. Train it first.' });
-  const { message, temperature, maxNewTokens, history } = req.body || {};
-  if (!message || typeof message !== 'string') {
-    return res.status(400).json({ error: 'Missing "message" string in request body.' });
-  }
-  // BUG FIX: history used to be silently ignored — every reply was
-  // generated with zero knowledge of earlier turns even though the UI
-  // showed a running conversation. Now the client-supplied history (if
-  // any) is validated and passed through to generateReply.
-  let safeHistory = [];
-  if (Array.isArray(history)) {
-    safeHistory = history.filter(
-      (t) => t && (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string'
-    );
-  }
+// ---------------- Protected dashboard status ----------------
+app.get('/api/status', requireLogin, (req, res) => {
+  res.json({
+    ready,
+    params: ready ? model.countParams() : 0,
+    vocabSize: ready ? tokenizer.vocabSize : 0,
+    modelName: process.env.MODEL_NAME || 'Tiny LLM',
+    modelId: process.env.MODEL_ID || '',
+  });
+});
+
+// ---------------- External inference API ----------------
+function cleanHistory(history) {
+  if (!Array.isArray(history)) return [];
+  return history
+    .filter((t) => t && (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string')
+    .slice(-16)
+    .map((t) => ({ role: t.role, content: t.content.slice(0, 4000) }));
+}
+
+function buildGenerationOptions(body = {}) {
+  const tempRaw = Number(body.temperature);
+  const topKRaw = Number(body.topK);
+  const repRaw = Number(body.repetitionPenalty);
+  const freqRaw = Number(body.frequencyPenalty);
+  const presRaw = Number(body.presencePenalty);
+  const ngramRaw = Number(body.noRepeatNgramSize);
+  const maxRaw = Number(body.maxNewTokens);
+
+  return {
+    temperature: Number.isFinite(tempRaw) ? Math.min(Math.max(tempRaw, 0), 2) : 0.8,
+    topK: Number.isFinite(topKRaw) ? Math.min(Math.max(Math.round(topKRaw), 1), 200) : 40,
+    repetitionPenalty: Number.isFinite(repRaw) ? Math.min(Math.max(repRaw, 1), 3) : 1.2,
+    frequencyPenalty: Number.isFinite(freqRaw) ? Math.min(Math.max(freqRaw, 0), 3) : 0.25,
+    presencePenalty: Number.isFinite(presRaw) ? Math.min(Math.max(presRaw, 0), 3) : 0.15,
+    noRepeatNgramSize: Number.isFinite(ngramRaw) ? Math.min(Math.max(Math.round(ngramRaw), 0), 5) : 3,
+    maxNewTokens: Number.isFinite(maxRaw) ? Math.min(Math.max(Math.round(maxRaw), 1), 256) : 128,
+  };
+}
+
+function generateFromRequest(body) {
+  if (!ready) throw new Error('Model not loaded. Train it first.');
+  const message = typeof body?.message === 'string' ? body.message.trim() : '';
+  if (!message) throw Object.assign(new Error('Missing "message" string in request body.'), { statusCode: 400 });
+  if (message.length > 8000) throw Object.assign(new Error('Message is too long. Maximum length is 8000 characters.'), { statusCode: 400 });
+
+  return generateReply(model, tokenizer, config, message, {
+    ...buildGenerationOptions(body),
+    history: cleanHistory(body.history),
+  });
+}
+
+app.post('/api/chat', requireApiKey, (req, res) => {
   try {
-    const reply = generateReply(model, tokenizer, config, message, {
-      temperature: temperature ?? 0.8,
-      maxNewTokens: maxNewTokens ?? 100,
-      history: safeHistory,
-    });
-    res.json({ reply });
+    res.json({ reply: generateFromRequest(req.body || {}) });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Generation failed.', details: err.message });
+    console.error('[api/chat]', err);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Generation failed.' });
+  }
+});
+
+// OpenAI-style compatibility endpoint for local apps that already speak the
+// common chat-completions request/response shape.
+app.get('/v1/models', requireApiKey, (req, res) => {
+  res.json({
+    object: 'list',
+    data: [{
+      id: process.env.MODEL_ID || 'tiny-llm',
+      object: 'model',
+      owned_by: process.env.MODEL_OWNER || 'local',
+    }],
+  });
+});
+
+app.post('/v1/chat/completions', requireApiKey, (req, res) => {
+  try {
+    const body = req.body || {};
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const lastUser = [...messages].reverse().find((m) => m && m.role === 'user' && typeof m.content === 'string');
+    if (!lastUser) throw Object.assign(new Error('messages must contain at least one user message.'), { statusCode: 400 });
+
+    const history = messages
+      .slice(0, -1)
+      .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    const reply = generateFromRequest({
+      ...body,
+      message: lastUser.content,
+      history,
+      topK: body.top_k,
+      maxNewTokens: body.max_tokens,
+      repetitionPenalty: body.repetition_penalty,
+    });
+
+    res.json({
+      id: `chatcmpl-${Date.now().toString(36)}`,
+      object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000),
+      model: process.env.MODEL_ID || 'tiny-llm',
+      choices: [{ index: 0, message: { role: 'assistant', content: reply }, finish_reason: 'stop' }],
+    });
+  } catch (err) {
+    console.error('[v1/chat/completions]', err);
+    res.status(err.statusCode || 500).json({ error: { message: err.message || 'Generation failed.' } });
   }
 });
 
 // ---------------- Training controls ----------------
-// Training (model/train.js) is a synchronous, CPU-bound loop. Running it
-// inline inside this Express process would block the event loop for the
-// entire run — the chat API and even the "Stop" button click would never
-// get a chance to be handled until training finished on its own. Instead
-// we spawn it as a separate child process:
-//   - the server stays responsive (status polling, chat, stop button) the
-//     whole time training runs
-//   - "Stop" is a real interrupt: killing the child process actually halts
-//     training immediately, instead of needing cooperative cancellation
-//     checks sprinkled through the training loop
-//   - train.js already checkpoints after every epoch, so stopping early
-//     just means "resume from the last completed epoch" next time
-
 let trainProc = null;
-let trainState = 'idle'; // idle | running | stopped | done | error
+let trainState = 'idle';
 let trainLogs = [];
 const MAX_LOG_LINES = 500;
-
-function pushLog(chunk) {
-  for (const line of chunk.toString().split('\n')) {
-    if (line.length) trainLogs.push(line);
-  }
-  if (trainLogs.length > MAX_LOG_LINES) {
-    trainLogs = trainLogs.slice(trainLogs.length - MAX_LOG_LINES);
-  }
-}
-
-// ---------------- Out-of-memory auto-recovery ----------------
-// A training process that gets killed with signal SIGKILL (as opposed to
-// SIGTERM, which is what our own Stop button sends) was almost certainly
-// killed by the HOST's out-of-memory guard, not by the user. This is very
-// common on memory-limited hosting: the default model/batch/context size
-// assumes a few GB of RAM, but small hosting plans (common for Discord-bot
-// panels being reused to also host this) may only give the container
-// 256MB-1GB. Rather than making the user manually figure out which
-// .env number to lower and retry by hand, we do it automatically: each
-// SIGKILL before the first checkpoint is saved halves BATCH_SIZE (and once
-// that hits 1, halves CONTEXT_LENGTH instead) and restarts training with
-// that override, up to a few attempts. Once a checkpoint has been saved
-// successfully we stop adjusting — changing CONTEXT_LENGTH after weights
-// exist would make them incompatible (positional embedding shape changes).
 const MAX_OOM_RETRIES = 4;
 let oomRetries = 0;
 let overrideBatchSize = null;
 let overrideContextLength = null;
+
+function pushLog(chunk) {
+  for (const line of chunk.toString().split('\n')) if (line.length) trainLogs.push(line);
+  if (trainLogs.length > MAX_LOG_LINES) trainLogs = trainLogs.slice(-MAX_LOG_LINES);
+}
 
 function launchTraining() {
   trainState = 'running';
@@ -165,14 +258,13 @@ function launchTraining() {
   trainProc = spawn(process.execPath, [path.join(projectRoot, 'index.js'), 'train'], {
     cwd: projectRoot,
     env,
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   trainProc.stdout.on('data', pushLog);
   trainProc.stderr.on('data', pushLog);
-
   trainProc.on('close', (code, signal) => {
     trainProc = null;
-
     const hasCheckpoint = checkpointExists(config.checkpointDir);
 
     if (signal === 'SIGKILL' && !hasCheckpoint && oomRetries < MAX_OOM_RETRIES) {
@@ -181,10 +273,10 @@ function launchTraining() {
       const prevCtx = overrideContextLength ?? config.contextLength;
       if (prevBatch > 1) {
         overrideBatchSize = Math.max(1, Math.floor(prevBatch / 2));
-        pushLog(`Training was killed (likely out-of-memory on this host). Auto-retrying with a smaller BATCH_SIZE: ${prevBatch} -> ${overrideBatchSize} (attempt ${oomRetries}/${MAX_OOM_RETRIES}).`);
-      } else {
+        pushLog(`Host killed training. Auto-retrying with BATCH_SIZE ${prevBatch} -> ${overrideBatchSize} (attempt ${oomRetries}/${MAX_OOM_RETRIES}).`);
+      } else if (prevCtx > 16) {
         overrideContextLength = Math.max(16, Math.floor(prevCtx / 2));
-        pushLog(`Training was killed (likely out-of-memory on this host). BATCH_SIZE is already at minimum, lowering CONTEXT_LENGTH instead: ${prevCtx} -> ${overrideContextLength} (attempt ${oomRetries}/${MAX_OOM_RETRIES}).`);
+        pushLog(`Host killed training. Auto-retrying with CONTEXT_LENGTH ${prevCtx} -> ${overrideContextLength} (attempt ${oomRetries}/${MAX_OOM_RETRIES}).`);
       }
       launchTraining();
       return;
@@ -192,30 +284,20 @@ function launchTraining() {
 
     if (signal === 'SIGKILL') {
       trainState = 'error';
-      pushLog(
-        `Training was killed by the host (out-of-memory), even after ${oomRetries} automatic retries with a ` +
-        `smaller batch/context size. This host likely doesn't have enough RAM for this dataset size. Try: ` +
-        `lowering N_EMBD/N_LAYER/FFN_HIDDEN in .env for a smaller model, splitting your data into a smaller ` +
-        `subset, or moving to a host with more memory.`
-      );
+      pushLog('Training was killed by the host after automatic memory retries. Reduce N_EMBD/N_LAYER/FFN_HIDDEN or use a larger-RAM host.');
     } else if (signal) {
-      // Any other signal (SIGTERM etc.) means the user pressed Stop, or the
-      // server itself was told to shut down — not an OOM kill.
       trainState = 'stopped';
       pushLog(`Training stopped (signal ${signal}).`);
     } else if (code === 0) {
       trainState = 'done';
-      oomRetries = 0; // reset backoff state now that a full run has succeeded
+      oomRetries = 0;
       pushLog('Training finished successfully.');
     } else {
       trainState = 'error';
       pushLog(`Training process exited with code ${code}.`);
     }
-    // Reload whatever checkpoint exists now so the Chat tab immediately
-    // reflects the latest trained weights without restarting the server.
     loadModel();
   });
-
   trainProc.on('error', (err) => {
     trainState = 'error';
     pushLog(`Failed to start training process: ${err.message}`);
@@ -223,159 +305,68 @@ function launchTraining() {
   });
 }
 
-app.post('/api/train/start', (req, res) => {
-  if (trainProc) {
-    return res.status(409).json({ error: 'Training is already running.' });
-  }
+app.post('/api/train/start', requireLogin, (req, res) => {
+  if (trainProc) return res.status(409).json({ error: 'Training is already running.' });
   trainLogs = [];
-  oomRetries = 0; // fresh manual start always gets a clean slate of retries
+  oomRetries = 0;
+  overrideBatchSize = null;
+  overrideContextLength = null;
   pushLog(`Starting training (data: ${config.dataDir}, checkpoint: ${config.checkpointDir})...`);
   launchTraining();
   res.json({ started: true });
 });
 
-app.post('/api/train/stop', (req, res) => {
-  if (!trainProc) {
-    return res.status(409).json({ error: 'No training run in progress.' });
-  }
+app.post('/api/train/stop', requireLogin, (req, res) => {
+  if (!trainProc) return res.status(409).json({ error: 'No training run in progress.' });
   trainProc.kill('SIGTERM');
   res.json({ stopping: true });
 });
 
-app.get('/api/train/status', (req, res) => {
-  res.json({
-    state: trainState,
-    running: !!trainProc,
-    logs: trainLogs,
-    modelReady: ready,
-  });
+app.get('/api/train/status', requireLogin, (req, res) => {
+  res.json({ state: trainState, running: !!trainProc, logs: trainLogs, modelReady: ready });
 });
 
-// Don't leave an orphaned training process behind if the server itself
-// is stopped/restarted while a run is in progress.
 process.on('exit', () => {
   if (trainProc) trainProc.kill('SIGTERM');
 });
 
 loadModel();
+requireInferenceConfig();
 
-// ---------------- Automatic hot-reload of the latest checkpoint ----------------
-// BUG FIX: previously the ONLY way to chat with a checkpoint saved mid-
-// training was to press Stop first — the running chat server kept using
-// whatever model it loaded at startup (or after the previous training run
-// finished) until loadModel() was explicitly called again. Since training
-// now saves a checkpoint periodically (CHECKPOINT_EVERY) as well as at
-// every epoch end, this polls the checkpoint's weights.bin mtime and
-// hot-reloads automatically whenever a newer one appears — no need to stop
-// training to test progress. saveCheckpoint()'s atomic rename (see
-// model/checkpoint.js) guarantees this never reads a half-written file.
 function checkForNewCheckpoint() {
   const weightsPath = path.join(config.checkpointDir, 'weights.bin');
   fs.stat(weightsPath, (err, stats) => {
-    if (err) return; // no checkpoint yet, or transient race — just try again next tick
-    if (stats.mtimeMs > lastLoadedMtime) {
-      lastLoadedMtime = stats.mtimeMs;
-      console.log('Detected an updated checkpoint on disk — hot-reloading into the chat server...');
-      loadModel();
-    }
+    if (err || stats.mtimeMs <= lastLoadedMtime) return;
+    console.log('Detected newer checkpoint; reloading model...');
+    if (!loadModel()) console.warn('Checkpoint reload failed; keeping the previous model state unavailable until a valid checkpoint is present.');
   });
 }
-setInterval(checkForNewCheckpoint, 10000);
+const checkpointPoller = setInterval(checkForNewCheckpoint, 10000);
+checkpointPoller.unref();
 
-// BUG FIX: previously nothing caught unexpected async errors — a single
-// uncaught exception or rejected promise anywhere (e.g. a bad request body,
-// a transient fs error) would silently kill the whole Node process. On a
-// hosting panel that looks exactly like "the website doesn't open": the
-// domain/port were configured correctly, but the process had already
-// crashed and nothing was listening anymore. These handlers make sure the
-// real error always gets printed to the panel's logs instead of vanishing.
-process.on('uncaughtException', (err) => {
-  console.error('[uncaughtException]', err);
-});
-process.on('unhandledRejection', (reason) => {
-  console.error('[unhandledRejection]', reason);
-});
+process.on('uncaughtException', (err) => console.error('[uncaughtException]', err));
+process.on('unhandledRejection', (reason) => console.error('[unhandledRejection]', reason));
 
-const PORT = process.env.PORT || 3000;
-// Bind address: on a hosting panel "localhost" only accepts connections
-// from inside the same container, so the panel's reverse proxy/router
-// (coming from a different address) can't reach it — this is the
-// "address is different on the server" problem. 0.0.0.0 means "listen on
-// every network interface", which works both locally and on hosting.
-// Override via HOST (or IP, some panels expose that name instead) in .env
-// if a specific address is ever required.
+const PORT = Number(process.env.PORT || 3000);
 const HOST_RAW = process.env.HOST || process.env.IP || '0.0.0.0';
-// Guard against the exact mistake this session hit: HOST set to a domain
-// name (e.g. "yourapp.example.net") instead of a bindable local address.
-// A quick IPv4/"localhost" shape check catches it before even attempting
-// the listen() call, avoiding an extra crash-and-retry cycle on panels that
-// count crashes (like HidenCloud's "aborting automatic restart" guard).
 const looksLikeBindableAddress = /^(0\.0\.0\.0|127\.0\.0\.1|localhost|(\d{1,3}\.){3}\d{1,3})$/.test(HOST_RAW);
-if (!looksLikeBindableAddress) {
-  console.warn(
-    `\nHOST="${HOST_RAW}" looks like a domain name, not a bindable address.\n` +
-    `Using 0.0.0.0 instead — your panel's domain/reverse-proxy will still\n` +
-    `route traffic to this container on the port below; the app itself\n` +
-    `never needs to bind to the domain directly. Remove HOST from .env (or\n` +
-    `your panel's environment variables) to silence this warning.\n`
-  );
-}
 const HOST = looksLikeBindableAddress ? HOST_RAW : '0.0.0.0';
 
-// Diagnostic banner: most "website won't open" hosting issues come down to
-// the app listening on a different PORT/HOST than what the panel's
-// domain/proxy actually forwards to. Printing every candidate env var the
-// process saw makes a mismatch obvious in the panel's log viewer instead of
-// requiring guesswork.
-console.log('--- Tiny LLM server starting ---');
-console.log('  PORT env:', process.env.PORT, '| HOST env:', process.env.HOST, '| IP env:', process.env.IP);
-console.log('  -> binding to', `${HOST}:${PORT}`);
-console.log('  If your hosting panel shows you a specific port/domain to use,');
-console.log('  make sure it matches the values above — panels usually inject');
-console.log('  their own PORT automatically, which overrides .env\'s PORT.');
+if (!looksLikeBindableAddress) console.warn(`HOST="${HOST_RAW}" is not a local bind address; using 0.0.0.0.`);
+console.log('--- ZarKos server starting ---');
+console.log(`Binding: ${HOST}:${PORT}`);
 
-function startServer(port, host, isRetry = false) {
+function startServer(port, host, retry = false) {
   const srv = app.listen(port, host, () => {
-    console.log(`Tiny LLM chat server running at http://${host}:${port} (local: http://localhost:${port})`);
+    console.log(`ZarKos server running on http://${host}:${port}`);
   });
-
-  // BUG FIX: previously a listen failure (e.g. port already in use, no
-  // permission to bind, or an unbindable HOST) threw an unhandled 'error'
-  // event and crashed the process with a raw stack trace — no clue what to
-  // actually do about it.
   srv.on('error', (err) => {
-    if (err.code === 'EADDRNOTAVAIL' && !isRetry) {
-      // This is almost always caused by HOST being set to a domain name
-      // (e.g. "yourapp.yourhost.net") instead of a bindable address. A
-      // domain is something a DNS/reverse-proxy layer routes TO your
-      // container from the outside — the process inside the container can
-      // never actually listen "as" that domain, only on its own network
-      // interfaces. Auto-retrying on 0.0.0.0 keeps the app alive instead of
-      // crash-looping every time, while the message below tells the user
-      // the real fix (remove HOST from .env / the panel's env settings).
-      console.error(
-        `\nCould not bind to HOST="${host}" (${err.message}).\n` +
-        `HOST should be an IP like 0.0.0.0, not a domain name — your panel's\n` +
-        `domain/reverse-proxy forwards traffic to this port from the outside,\n` +
-        `the app itself never binds to the domain directly.\n` +
-        `Retrying on 0.0.0.0 now. To fix this permanently, remove/clear the\n` +
-        `HOST value in .env (or your panel's environment variables) so it\n` +
-        `defaults to 0.0.0.0.\n`
-      );
-      startServer(port, '0.0.0.0', true);
-      return;
-    }
-    if (err.code === 'EADDRINUSE') {
-      console.error(`Port ${port} is already in use. Another process (maybe a previous run of this same app) is still running. Stop it, or set a different PORT in .env.`);
-    } else if (err.code === 'EACCES') {
-      console.error(`No permission to bind to port ${port}/host ${host}. Ports below 1024 usually need elevated permissions — try a port like 3000+ instead.`);
-    } else {
-      console.error('Server failed to start:', err);
-    }
+    if (err.code === 'EADDRNOTAVAIL' && !retry) return startServer(port, '0.0.0.0', true);
+    if (err.code === 'EADDRINUSE') console.error(`Port ${port} is already in use.`);
+    else if (err.code === 'EACCES') console.error(`No permission to bind ${host}:${port}.`);
+    else console.error('Server failed to start:', err);
     process.exit(1);
   });
-
-  return srv;
 }
 
 startServer(PORT, HOST);
