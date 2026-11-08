@@ -5,8 +5,9 @@ const express = require('express');
 const { spawn } = require('child_process');
 
 const config = require('../model/config');
+const tf = require('../model/tf');
 const { BPETokenizer } = require('../model/tokenizer');
-const { TinyGPT } = require('../model/transformer');
+const { ZarKosLM } = require('../model/transformer');
 const { loadCheckpointInto, checkpointExists } = require('../model/checkpoint');
 const { generateReply } = require('../model/generate');
 const {
@@ -34,8 +35,6 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Keep the installable PWA manifest truthful to the same .env branding used
-// by the dashboard/API. This avoids hard-coded model names in the UI shell.
 app.get('/manifest.webmanifest', (req, res) => {
   const name = process.env.MODEL_NAME || 'ZarKos';
   const shortName = name.replace(/\s+(Training|Model)$/i, '').slice(0, 20) || 'ZarKos';
@@ -68,7 +67,7 @@ function loadModel() {
   try {
     const candidateTokenizer = BPETokenizer.load(config.checkpointDir);
     const candidateConfig = { ...config, vocabSize: candidateTokenizer.vocabSize };
-    const candidateModel = new TinyGPT(candidateConfig);
+    const candidateModel = new ZarKosLM(candidateConfig);
     loadCheckpointInto(candidateModel, config.checkpointDir);
 
     const oldModel = model;
@@ -106,14 +105,13 @@ app.get('/health', (req, res) => res.type('text').send('ok'));
 
 app.get('/api/branding', (req, res) => {
   res.json({
-    modelName: process.env.MODEL_NAME || 'Tiny LLM',
-    modelId: process.env.MODEL_ID || '',
+    modelName: process.env.MODEL_NAME || 'ZarKos',
+    modelId: process.env.MODEL_ID || 'tuzhi/zarkos-mini-v1',
     owner: process.env.MODEL_OWNER || '',
     brand: process.env.MODEL_BRAND || '',
   });
 });
 
-// ---------------- Admin authentication ----------------
 app.post('/api/auth/login', (req, res) => login(req, res));
 app.get('/api/auth/me', (req, res) => {
   const session = getSession(req);
@@ -126,18 +124,17 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------------- Protected dashboard status ----------------
 app.get('/api/status', requireLogin, (req, res) => {
   res.json({
     ready,
     params: ready ? model.countParams() : 0,
     vocabSize: ready ? tokenizer.vocabSize : 0,
-    modelName: process.env.MODEL_NAME || 'Tiny LLM',
-    modelId: process.env.MODEL_ID || '',
+    modelName: process.env.MODEL_NAME || 'ZarKos',
+    modelId: process.env.MODEL_ID || 'tuzhi/zarkos-mini-v1',
+    ...tf.deviceInfo(),
   });
 });
 
-// ---------------- External inference API ----------------
 function cleanHistory(history) {
   if (!Array.isArray(history)) return [];
   return history
@@ -166,6 +163,23 @@ function buildGenerationOptions(body = {}) {
   };
 }
 
+function getCallerInfo(req) {
+  const forwarded = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  const ip = forwarded || req.ip || req.socket?.remoteAddress || 'unknown';
+  const ua = (req.headers['user-agent'] || 'unknown').slice(0, 80);
+  return { ip, ua };
+}
+
+function logRequest(label, { statusCode, errorMessage, req, userMsg, aiMsg }) {
+  const { ip, ua } = getCallerInfo(req);
+  const statusLine = errorMessage
+    ? `[${label}] ${statusCode} - ${errorMessage}`
+    : `[${label}] ${statusCode} OK`;
+  const u = typeof userMsg === 'string' && userMsg.trim() ? userMsg : '(empty)';
+  const a = typeof aiMsg === 'string' && aiMsg.trim() ? aiMsg : '(empty)';
+  console.log(`${statusLine}\n - ip=${ip} ua=${ua}\nUSER: ${u}\nAI: ${a}\n`);
+}
+
 function generateFromRequest(body) {
   if (!ready) throw new Error('Model not loaded. Train it first.');
   const message = typeof body?.message === 'string' ? body.message.trim() : '';
@@ -179,32 +193,42 @@ function generateFromRequest(body) {
 }
 
 app.post('/api/chat', requireApiKey, (req, res) => {
+  const rawMessage = typeof req.body?.message === 'string' ? req.body.message : '';
   try {
-    res.json({ reply: generateFromRequest(req.body || {}) });
+    const reply = generateFromRequest(req.body || {});
+    logRequest('api/chat', { statusCode: 200, req, userMsg: rawMessage, aiMsg: reply });
+    res.json({ reply });
   } catch (err) {
-    console.error('[api/chat]', err);
+    logRequest('api/chat', {
+      statusCode: err.statusCode || 500,
+      errorMessage: err.message || 'Generation failed.',
+      req,
+      userMsg: rawMessage,
+      aiMsg: null,
+    });
     res.status(err.statusCode || 500).json({ error: err.message || 'Generation failed.' });
   }
 });
 
-// OpenAI-style compatibility endpoint for local apps that already speak the
-// common chat-completions request/response shape.
 app.get('/v1/models', requireApiKey, (req, res) => {
   res.json({
     object: 'list',
     data: [{
-      id: process.env.MODEL_ID || 'tiny-llm',
+      id: process.env.MODEL_ID || 'tuzhi/zarkos-mini-v1',
       object: 'model',
-      owned_by: process.env.MODEL_OWNER || 'local',
+      owned_by: process.env.MODEL_OWNER || 'TuZhi Codes',
+      ready,
     }],
   });
 });
 
 app.post('/v1/chat/completions', requireApiKey, (req, res) => {
+  const body = req.body || {};
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const lastUser = [...messages].reverse().find((m) => m && m.role === 'user' && typeof m.content === 'string');
+  const rawMessage = lastUser ? lastUser.content : '';
+
   try {
-    const body = req.body || {};
-    const messages = Array.isArray(body.messages) ? body.messages : [];
-    const lastUser = [...messages].reverse().find((m) => m && m.role === 'user' && typeof m.content === 'string');
     if (!lastUser) throw Object.assign(new Error('messages must contain at least one user message.'), { statusCode: 400 });
 
     const history = messages
@@ -221,20 +245,27 @@ app.post('/v1/chat/completions', requireApiKey, (req, res) => {
       repetitionPenalty: body.repetition_penalty,
     });
 
+    logRequest('v1/chat/completions', { statusCode: 200, req, userMsg: rawMessage, aiMsg: reply });
+
     res.json({
       id: `chatcmpl-${Date.now().toString(36)}`,
       object: 'chat.completion',
       created: Math.floor(Date.now() / 1000),
-      model: process.env.MODEL_ID || 'tiny-llm',
+      model: process.env.MODEL_ID || 'tuzhi/zarkos-mini-v1',
       choices: [{ index: 0, message: { role: 'assistant', content: reply }, finish_reason: 'stop' }],
     });
   } catch (err) {
-    console.error('[v1/chat/completions]', err);
+    logRequest('v1/chat/completions', {
+      statusCode: err.statusCode || 500,
+      errorMessage: err.message || 'Generation failed.',
+      req,
+      userMsg: rawMessage,
+      aiMsg: null,
+    });
     res.status(err.statusCode || 500).json({ error: { message: err.message || 'Generation failed.' } });
   }
 });
 
-// ---------------- Training controls ----------------
 let trainProc = null;
 let trainState = 'idle';
 let trainLogs = [];
@@ -353,12 +384,13 @@ const looksLikeBindableAddress = /^(0\.0\.0\.0|127\.0\.0\.1|localhost|(\d{1,3}\.
 const HOST = looksLikeBindableAddress ? HOST_RAW : '0.0.0.0';
 
 if (!looksLikeBindableAddress) console.warn(`HOST="${HOST_RAW}" is not a local bind address; using 0.0.0.0.`);
-console.log('--- ZarKos server starting ---');
+const startupName = process.env.MODEL_NAME || 'ZarKos';
+console.log(`--- ${startupName} server starting ---`);
 console.log(`Binding: ${HOST}:${PORT}`);
 
 function startServer(port, host, retry = false) {
   const srv = app.listen(port, host, () => {
-    console.log(`ZarKos server running on http://${host}:${port}`);
+    console.log(`${startupName} server running on http://${host}:${port}`);
   });
   srv.on('error', (err) => {
     if (err.code === 'EADDRNOTAVAIL' && !retry) return startServer(port, '0.0.0.0', true);
