@@ -1,5 +1,5 @@
-const API = "https://zarkos.hidenplay.net/v1/chat/completions";
-const KEY = "zarkos-0sIrN2b9a-api";
+const API = process.env.REMOTE_URL || "https://zarkos-mini-v1.onrender.com/v1/chat/completions";
+const KEY = process.env.MODEL_API_KEY || "zarkos-0sIrN2b9a-api";
 
 let temperature = 0.8;
 
