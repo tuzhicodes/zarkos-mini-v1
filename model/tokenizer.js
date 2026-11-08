@@ -1,18 +1,7 @@
-/**
- * A small, dependency-free Byte-Pair Encoding (BPE) tokenizer.
- *
- * This is a simplified version of the algorithm used by GPT-2/GPT-3:
- *   1. Split raw text into words.
- *   2. Represent each word as a sequence of characters + an end-of-word marker.
- *   3. Repeatedly merge the most frequent adjacent pair of symbols into a new
- *      symbol, until we reach the target vocab size.
- *   4. Encoding text = greedily applying the learned merges.
- */
-
 const fs = require('fs');
 const path = require('path');
 
-const EOW = '</w>'; // end-of-word marker
+const EOW = '</w>';
 
 function wordToSymbols(word) {
   return Array.from(word).concat([EOW]);
@@ -47,8 +36,8 @@ function mergePairInWord(symbols, a, b) {
 class BPETokenizer {
   constructor(specialTokens = []) {
     this.specialTokens = specialTokens;
-    this.merges = []; // ordered list of [a, b] pairs, highest priority first
-    this.mergeRank = new Map(); // "a\0b" -> rank (lower = applied first)
+    this.merges = [];
+    this.mergeRank = new Map();
     this.tokenToId = new Map();
     this.idToToken = [];
   }
@@ -60,9 +49,8 @@ class BPETokenizer {
     }
   }
 
-  /** Train BPE merges from an array of raw text strings. */
   train(texts, targetVocabSize) {
-    // 1. Pre-tokenize into words (simple whitespace + punctuation split, Unicode-aware)
+
     const wordFreq = new Map();
     const wordRe = /[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu;
     for (const text of texts) {
@@ -77,13 +65,11 @@ class BPETokenizer {
       freq,
     }));
 
-    // 2. Base vocab = all unique symbols (characters) seen + special tokens
     for (const st of this.specialTokens) this._addToken(st);
     const baseSymbols = new Set();
     for (const { symbols } of corpusWords) symbols.forEach((s) => baseSymbols.add(s));
     for (const s of baseSymbols) this._addToken(s);
 
-    // 3. Iteratively merge most frequent pair until vocab is full
     const maxMerges = Math.max(0, targetVocabSize - this.idToToken.length);
     for (let m = 0; m < maxMerges; m++) {
       const pairCounts = getPairCounts(corpusWords);
@@ -97,7 +83,7 @@ class BPETokenizer {
           bestPair = pair;
         }
       }
-      if (bestCount < 2) break; // not worth merging singletons
+      if (bestCount < 2) break;
 
       const [a, b] = bestPair.split('\u0000');
       this.merges.push([a, b]);
@@ -113,7 +99,6 @@ class BPETokenizer {
     return this;
   }
 
-  /** Apply learned merges to a single word (array of chars + EOW). */
   _bpeWord(word) {
     let symbols = wordToSymbols(word);
     if (symbols.length === 1) return symbols;
@@ -135,7 +120,6 @@ class BPETokenizer {
     return symbols;
   }
 
-  /** Encode raw text into an array of token ids. */
   encode(text) {
     const wordRe = /[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu;
     const unkId = this.tokenToId.get('<unk>');
@@ -148,17 +132,9 @@ class BPETokenizer {
       }
     };
 
-    // Special tokens (e.g. <|user|>, <|end|>, <|assistant|>) must be
-    // matched as a single atomic token BEFORE the generic word-level regex
-    // runs. Without this, wordRe splits "<|user|>" into "<", "|", "user",
-    // "|", ">" — five broken fragments instead of the one real token id —
-    // even though the special token has its own dedicated vocab entry.
-    // That mismatch is why generated replies were leaking raw fragments
-    // like "< | user | >" instead of ever seeing/producing a clean
-    // <|user|>/<|end|> boundary.
     const specials = this.specialTokens
       .filter((t) => this.tokenToId.has(t))
-      .sort((a, b) => b.length - a.length); // longest first, avoids partial-overlap matches
+      .sort((a, b) => b.length - a.length);
 
     if (specials.length === 0) {
       const words = text.match(wordRe) || [];
@@ -186,13 +162,16 @@ class BPETokenizer {
     return ids;
   }
 
-  /** Decode an array of token ids back into text. */
+  decodeToken(id) {
+    const tok = this.idToToken[id];
+    if (tok === undefined || this.specialTokens.includes(tok)) return '';
+    return tok.endsWith(EOW) ? tok.slice(0, -EOW.length) + ' ' : tok;
+  }
+
   decode(ids) {
     let out = '';
     for (const id of ids) {
-      const tok = this.idToToken[id];
-      if (tok === undefined || this.specialTokens.includes(tok)) continue;
-      out += tok.endsWith(EOW) ? tok.slice(0, -EOW.length) + ' ' : tok;
+      out += this.decodeToken(id);
     }
     return out.trim();
   }

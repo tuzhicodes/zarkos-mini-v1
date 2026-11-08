@@ -1,40 +1,17 @@
-/**
- * TinyGPT: a decoder-only (GPT-style) transformer implemented directly with
- * @tensorflow/tfjs tensor ops (no Layers API), so every weight is a
- * plain tf.Variable we fully control — this is what makes it a "real"
- * from-scratch LLM rather than a wrapper around a pre-built layer.
- *
- * Uses the pure-JS @tensorflow/tfjs package (CPU backend, no native addon)
- * instead of @tensorflow/tfjs-node on purpose: tfjs-node needs node-gyp to
- * compile a native binding on install, which shared/limited hosting often
- * blocks or can't run at all. Pure-JS is slower per-op but for a model this
- * small it's fine, and it removes the native-build failure point entirely.
- */
+const tf = require('./tf');
 
-const tf = require('@tensorflow/tfjs');
-
-function initWeight(shape, std = 0.02) {
-  return tf.variable(tf.randomNormal(shape, 0, std));
+function initWeight(shape, name, std = 0.02) {
+  return tf.variable(tf.randomNormal(shape, 0, std), true, name);
 }
-function initZeros(shape) {
-  return tf.variable(tf.zeros(shape));
+function initZeros(shape, name) {
+  return tf.variable(tf.zeros(shape), true, name);
 }
-function initOnes(shape) {
-  return tf.variable(tf.ones(shape));
+function initOnes(shape, name) {
+  return tf.variable(tf.ones(shape), true, name);
 }
 
-/**
- * tf.matMul requires both operands to have the SAME rank (>= 2) — it does
- * NOT auto-broadcast a 3D [batch, seq, inDim] activation against a 2D
- * [inDim, outDim] weight matrix the way numpy/PyTorch would. Calling
- * x.matMul(w2d) directly throws:
- *   "Error in matMul: inputs must have the same rank of at least 2, got ranks 3 and 2."
- *
- * This helper flattens [batch, seq, inDim] -> [batch*seq, inDim], does a
- * plain rank-2 matmul against the rank-2 weight, then reshapes back to
- * [batch, seq, outDim]. Bias add is fine as-is since tf.add broadcasts
- * across ranks without restriction (only matMul has the equal-rank rule).
- */
+let nextInstanceId = 0;
+
 function linear(x, w, b) {
   const [batch, seq, inDim] = x.shape;
   const outDim = w.shape[1];
@@ -44,40 +21,44 @@ function linear(x, w, b) {
   return out;
 }
 
-class TinyGPT {
+class ZarKosLM {
   constructor(config) {
     this.config = config;
     const { vocabSize, contextLength, nEmbd, nLayer, ffnHidden } = config;
 
-    this.wte = initWeight([vocabSize, nEmbd]); // token embedding (also used as output head, weight-tied)
-    this.wpe = initWeight([contextLength, nEmbd]); // positional embedding
+    const uid = nextInstanceId++;
+    const w = (shape, name, std) => initWeight(shape, `${name}#${uid}`, std);
+    const z = (shape, name) => initZeros(shape, `${name}#${uid}`);
+    const o = (shape, name) => initOnes(shape, `${name}#${uid}`);
+
+    this.wte = w([vocabSize, nEmbd], 'wte');
+    this.wpe = w([contextLength, nEmbd], 'wpe');
 
     this.layers = [];
     for (let i = 0; i < nLayer; i++) {
       this.layers.push({
-        ln1g: initOnes([nEmbd]),
-        ln1b: initZeros([nEmbd]),
-        wq: initWeight([nEmbd, nEmbd]),
-        bq: initZeros([nEmbd]),
-        wk: initWeight([nEmbd, nEmbd]),
-        bk: initZeros([nEmbd]),
-        wv: initWeight([nEmbd, nEmbd]),
-        bv: initZeros([nEmbd]),
-        wo: initWeight([nEmbd, nEmbd]),
-        bo: initZeros([nEmbd]),
-        ln2g: initOnes([nEmbd]),
-        ln2b: initZeros([nEmbd]),
-        wfc1: initWeight([nEmbd, ffnHidden]),
-        bfc1: initZeros([ffnHidden]),
-        wfc2: initWeight([ffnHidden, nEmbd]),
-        bfc2: initZeros([nEmbd]),
+        ln1g: o([nEmbd], `layer${i}.ln1g`),
+        ln1b: z([nEmbd], `layer${i}.ln1b`),
+        wq: w([nEmbd, nEmbd], `layer${i}.wq`),
+        bq: z([nEmbd], `layer${i}.bq`),
+        wk: w([nEmbd, nEmbd], `layer${i}.wk`),
+        bk: z([nEmbd], `layer${i}.bk`),
+        wv: w([nEmbd, nEmbd], `layer${i}.wv`),
+        bv: z([nEmbd], `layer${i}.bv`),
+        wo: w([nEmbd, nEmbd], `layer${i}.wo`),
+        bo: z([nEmbd], `layer${i}.bo`),
+        ln2g: o([nEmbd], `layer${i}.ln2g`),
+        ln2b: z([nEmbd], `layer${i}.ln2b`),
+        wfc1: w([nEmbd, ffnHidden], `layer${i}.wfc1`),
+        bfc1: z([ffnHidden], `layer${i}.bfc1`),
+        wfc2: w([ffnHidden, nEmbd], `layer${i}.wfc2`),
+        bfc2: z([nEmbd], `layer${i}.bfc2`),
       });
     }
-    this.lnFg = initOnes([nEmbd]);
-    this.lnFb = initZeros([nEmbd]);
+    this.lnFg = o([nEmbd], 'lnFg');
+    this.lnFb = z([nEmbd], 'lnFb');
   }
 
-  /** Ordered list of {name, variable} — order MUST match between save and load. */
   namedVariables() {
     const list = [
       { name: 'wte', variable: this.wte },
@@ -97,13 +78,6 @@ class TinyGPT {
     return this.namedVariables().map((v) => v.variable);
   }
 
-  /**
-   * Dispose every tf.Variable this model owns. tf.js tensors/variables are
-   * NOT garbage-collected by the JS engine — they live in the tf backend's
-   * own memory until explicitly disposed. Needed whenever a model instance
-   * is being replaced (e.g. hot-reloading a newer checkpoint into a running
-   * chat server) so the old weights don't just leak memory forever.
-   */
   dispose() {
     for (const { variable } of this.namedVariables()) {
       variable.dispose();
@@ -120,11 +94,12 @@ class TinyGPT {
   }
 
   _causalMask(seqLen) {
+
     return tf.tidy(() => {
-      // 1s below/on diagonal (allowed), 0s above (future, disallowed)
-      const ones = tf.ones([seqLen, seqLen]);
-      const mask = tf.linalg.bandPart(ones, -1, 0); // lower-triangular incl diagonal
-      return mask.sub(1).mul(1e9); // 0 where allowed, -1e9 where disallowed
+      const rowIdx = tf.range(0, seqLen, 1, 'int32').reshape([seqLen, 1]);
+      const colIdx = tf.range(0, seqLen, 1, 'int32').reshape([1, seqLen]);
+      const allowed = colIdx.lessEqual(rowIdx);
+      return allowed.logicalNot().cast('float32').mul(-1e9);
     });
   }
 
@@ -138,17 +113,17 @@ class TinyGPT {
       const v = linear(x, layer.wv, layer.bv);
 
       const splitHeads = (t) =>
-        t.reshape([batch, seqLen, nHead, headDim]).transpose([0, 2, 1, 3]); // [B,H,S,D]
+        t.reshape([batch, seqLen, nHead, headDim]).transpose([0, 2, 1, 3]);
 
       const qh = splitHeads(q);
       const kh = splitHeads(k);
       const vh = splitHeads(v);
 
-      const scores = tf.matMul(qh, kh, false, true).div(Math.sqrt(headDim)); // [B,H,S,S]
-      const maskedScores = scores.add(mask); // broadcast [S,S] over [B,H,S,S]
+      const scores = tf.matMul(qh, kh, false, true).div(Math.sqrt(headDim));
+      const maskedScores = scores.add(mask);
       const probs = tf.softmax(maskedScores, -1);
 
-      const attnOut = tf.matMul(probs, vh); // [B,H,S,D]
+      const attnOut = tf.matMul(probs, vh);
       const merged = attnOut.transpose([0, 2, 1, 3]).reshape([batch, seqLen, nHead * headDim]);
 
       return linear(merged, layer.wo, layer.bo);
@@ -157,20 +132,18 @@ class TinyGPT {
 
   _feedForward(x, layer) {
     return tf.tidy(() => {
-      // GELU is the activation used by the GPT family and generally gives
-      // smoother optimization than a hard ReLU for language modeling.
+
       const h = linear(x, layer.wfc1, layer.bfc1);
       const gelu = h.mul(0.5).mul(tf.add(1, tf.erf(h.div(Math.sqrt(2)))));
       return linear(gelu, layer.wfc2, layer.bfc2);
     });
   }
 
-  /** Forward pass. idx: int32 tensor [batch, seqLen]. Returns logits [batch, seqLen, vocabSize]. */
   forward(idx) {
     return tf.tidy(() => {
       const seqLen = idx.shape[1];
-      const tokEmb = tf.gather(this.wte, idx); // [B,S,E]
-      const posEmb = this.wpe.slice([0, 0], [seqLen, this.config.nEmbd]); // [S,E]
+      const tokEmb = tf.gather(this.wte, idx);
+      const posEmb = this.wpe.slice([0, 0], [seqLen, this.config.nEmbd]);
       let x = tokEmb.add(posEmb);
 
       const mask = this._causalMask(seqLen);
@@ -183,21 +156,18 @@ class TinyGPT {
       }
 
       x = this._layerNorm(x, this.lnFg, this.lnFb);
-      // Weight-tied output head: logits = x @ wte^T
-      // Same rank-mismatch rule applies here: x is [B,S,E] (rank 3) and wte
-      // is [vocabSize,E] (rank 2) — flatten to rank 2, matmul, reshape back.
+
       const [batch, seq, embd] = x.shape;
       const vocabSize = this.wte.shape[0];
       const flat = x.reshape([batch * seq, embd]);
-      const logitsFlat = tf.matMul(flat, this.wte, false, true); // [B*S, vocabSize]
+      const logitsFlat = tf.matMul(flat, this.wte, false, true);
       return logitsFlat.reshape([batch, seq, vocabSize]);
     });
   }
 
-  /** Count total trainable scalar parameters. */
   countParams() {
     return this.trainableVariables.reduce((sum, v) => sum + v.size, 0);
   }
 }
 
-module.exports = { TinyGPT };
+module.exports = { ZarKosLM };

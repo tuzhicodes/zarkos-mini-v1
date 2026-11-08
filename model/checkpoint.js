@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const tf = require('@tensorflow/tfjs');
+const tf = require('./tf');
 
 async function saveCheckpoint(model, dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -9,19 +9,11 @@ async function saveCheckpoint(model, dir) {
   const buffers = [];
 
   for (const { name, variable } of model.namedVariables()) {
-    const data = await variable.data(); // Float32Array
+    const data = await variable.data();
     manifest.tensors.push({ name, shape: variable.shape });
     buffers.push(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
   }
 
-  // BUG FIX: previously wrote manifest.json and weights.bin directly with
-  // fs.writeFileSync. If anything reads the checkpoint while that write is
-  // in progress — e.g. the chat server hot-reloading the latest weights
-  // WHILE training is still running in a separate process — it could see a
-  // half-written weights.bin (wrong byte length) and crash, or read stale
-  // data. Writing to .tmp files and then renaming into place is atomic on
-  // the same filesystem: a concurrent reader only ever sees either the
-  // complete old pair or the complete new pair, never a partial file.
   const manifestPath = path.join(dir, 'manifest.json');
   const weightsPath = path.join(dir, 'weights.bin');
   const manifestTmp = manifestPath + '.tmp';
@@ -65,19 +57,14 @@ function loadCheckpointInto(model, dir) {
       throw new Error(`Checkpoint tensor order mismatch: expected "${name}", found "${meta.name}"`);
     }
     const numel = meta.shape.reduce((a, b) => a * b, 1);
-    const byteLength = numel * 4; // float32
-    // Read via DataView.getFloat32 at explicit byte offsets instead of
-    // reinterpreting the Buffer's backing ArrayBuffer as a Float32Array.
-    // The latter only works when the view's byteOffset is a multiple of 4,
-    // which happens to hold today (Node aligns Buffer pool offsets to 8,
-    // and readFileSync gives byteOffset 0 for real-sized files) but isn't
-    // guaranteed by any spec — this way it's correct regardless.
+    const byteLength = numel * 4;
+
     const arr = new Float32Array(numel);
     const view = new DataView(buffer.buffer, buffer.byteOffset + offset, byteLength);
     for (let i = 0; i < numel; i++) {
-      arr[i] = view.getFloat32(i * 4, true); // little-endian, matches saveCheckpoint's native write
+      arr[i] = view.getFloat32(i * 4, true);
     }
-    variable.assign(tf.tensor(arr, meta.shape)); // pass the typed array directly, no Array.from needed
+    variable.assign(tf.tensor(arr, meta.shape));
     offset += byteLength;
   });
 
@@ -88,4 +75,93 @@ function checkpointExists(dir) {
   return fs.existsSync(path.join(dir, 'manifest.json')) && fs.existsSync(path.join(dir, 'weights.bin'));
 }
 
-module.exports = { saveCheckpoint, loadCheckpointInto, checkpointExists };
+async function saveTrainingMeta(dir, { completedEpochs, globalStep, bestValLoss }, optimizer) {
+  const metaPath = path.join(dir, 'meta.json');
+  const optPath = path.join(dir, 'optimizer.bin');
+  const metaTmp = metaPath + '.tmp';
+  const optTmp = optPath + '.tmp';
+
+  let weights = [];
+  if (optimizer && typeof optimizer.getWeights === 'function') {
+    try {
+      weights = await optimizer.getWeights();
+    } catch (err) {
+      console.warn(`Could not read optimizer state (will resume without momentum): ${err.message}`);
+      weights = [];
+    }
+  }
+
+  const meta = {
+    completedEpochs,
+    globalStep,
+
+    bestValLoss: bestValLoss ?? null,
+    optimizer: weights.length
+      ? { tensors: weights.map((w) => ({ name: w.name, shape: w.tensor.shape })) }
+      : null,
+  };
+
+  try {
+    if (weights.length) {
+      const buffers = [];
+      for (const w of weights) {
+        const data = await w.tensor.data();
+        buffers.push(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+      }
+      fs.writeFileSync(optTmp, Buffer.concat(buffers));
+      fs.renameSync(optTmp, optPath);
+    } else if (fs.existsSync(optPath)) {
+      fs.unlinkSync(optPath);
+    }
+    fs.writeFileSync(metaTmp, JSON.stringify(meta, null, 2));
+    fs.renameSync(metaTmp, metaPath);
+  } catch (err) {
+    console.warn(`Could not save training progress/optimizer state: ${err.message}`);
+  }
+}
+
+async function loadTrainingMeta(dir, optimizer) {
+  const metaPath = path.join(dir, 'meta.json');
+  const optPath = path.join(dir, 'optimizer.bin');
+  const fallback = { completedEpochs: 0, globalStep: 0, bestValLoss: null };
+  if (!fs.existsSync(metaPath)) return fallback;
+
+  let meta;
+  try {
+    meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  } catch (err) {
+    console.warn(`Could not read meta.json (starting epoch/step count from 0): ${err.message}`);
+    return fallback;
+  }
+
+  const result = {
+    completedEpochs: Number(meta.completedEpochs) || 0,
+    globalStep: Number(meta.globalStep) || 0,
+
+    bestValLoss: typeof meta.bestValLoss === 'number' ? meta.bestValLoss : null,
+  };
+
+  if (optimizer && meta.optimizer && Array.isArray(meta.optimizer.tensors) && fs.existsSync(optPath)) {
+    try {
+      const buffer = fs.readFileSync(optPath);
+      let offset = 0;
+      const weightValues = meta.optimizer.tensors.map((t) => {
+        const numel = t.shape.reduce((a, b) => a * b, 1);
+        const byteLength = numel * 4;
+        const arr = new Float32Array(numel);
+        const view = new DataView(buffer.buffer, buffer.byteOffset + offset, byteLength);
+        for (let i = 0; i < numel; i++) arr[i] = view.getFloat32(i * 4, true);
+        offset += byteLength;
+        return { name: t.name, tensor: tf.tensor(arr, t.shape) };
+      });
+      await optimizer.setWeights(weightValues);
+      console.log(`Restored optimizer momentum (${weightValues.length} tensors) from checkpoint.`);
+    } catch (err) {
+      console.warn(`Could not restore optimizer momentum from checkpoint (resuming with fresh momentum): ${err.message}`);
+    }
+  }
+
+  return result;
+}
+
+module.exports = { saveCheckpoint, loadCheckpointInto, checkpointExists, saveTrainingMeta, loadTrainingMeta };
