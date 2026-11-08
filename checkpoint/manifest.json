@@ -1,0 +1,1080 @@
+{
+  "config": {
+    "device": "gpu",
+    "modelName": "ZarKos Mini v1",
+    "modelId": "tuzhi/zarkos-mini-v1",
+    "modelOwner": "TuZhi Codes",
+    "modelBrand": "TuZhi Studio",
+    "vocabSize": 9000,
+    "dataDir": "/content/zarkos/data",
+    "contextLength": 56,
+    "nEmbd": 352,
+    "nHead": 8,
+    "nLayer": 10,
+    "ffnHidden": 1408,
+    "batchSize": 16,
+    "epochs": 20,
+    "learningRate": 0.0004,
+    "valFraction": 0.05,
+    "specialTokens": [
+      "<pad>",
+      "<unk>",
+      "<bos>",
+      "<eos>",
+      "<|user|>",
+      "<|assistant|>",
+      "<|end|>"
+    ],
+    "checkpointDir": "/content/zarkos/checkpoint",
+    "checkpointEvery": 500,
+    "headDim": 44
+  },
+  "tensors": [
+    {
+      "name": "wte",
+      "shape": [
+        9000,
+        352
+      ]
+    },
+    {
+      "name": "wpe",
+      "shape": [
+        56,
+        352
+      ]
+    },
+    {
+      "name": "layer0.ln1g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer0.ln1b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer0.wq",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer0.bq",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer0.wk",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer0.bk",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer0.wv",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer0.bv",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer0.wo",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer0.bo",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer0.ln2g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer0.ln2b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer0.wfc1",
+      "shape": [
+        352,
+        1408
+      ]
+    },
+    {
+      "name": "layer0.bfc1",
+      "shape": [
+        1408
+      ]
+    },
+    {
+      "name": "layer0.wfc2",
+      "shape": [
+        1408,
+        352
+      ]
+    },
+    {
+      "name": "layer0.bfc2",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer1.ln1g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer1.ln1b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer1.wq",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer1.bq",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer1.wk",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer1.bk",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer1.wv",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer1.bv",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer1.wo",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer1.bo",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer1.ln2g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer1.ln2b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer1.wfc1",
+      "shape": [
+        352,
+        1408
+      ]
+    },
+    {
+      "name": "layer1.bfc1",
+      "shape": [
+        1408
+      ]
+    },
+    {
+      "name": "layer1.wfc2",
+      "shape": [
+        1408,
+        352
+      ]
+    },
+    {
+      "name": "layer1.bfc2",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer2.ln1g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer2.ln1b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer2.wq",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer2.bq",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer2.wk",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer2.bk",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer2.wv",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer2.bv",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer2.wo",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer2.bo",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer2.ln2g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer2.ln2b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer2.wfc1",
+      "shape": [
+        352,
+        1408
+      ]
+    },
+    {
+      "name": "layer2.bfc1",
+      "shape": [
+        1408
+      ]
+    },
+    {
+      "name": "layer2.wfc2",
+      "shape": [
+        1408,
+        352
+      ]
+    },
+    {
+      "name": "layer2.bfc2",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer3.ln1g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer3.ln1b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer3.wq",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer3.bq",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer3.wk",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer3.bk",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer3.wv",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer3.bv",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer3.wo",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer3.bo",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer3.ln2g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer3.ln2b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer3.wfc1",
+      "shape": [
+        352,
+        1408
+      ]
+    },
+    {
+      "name": "layer3.bfc1",
+      "shape": [
+        1408
+      ]
+    },
+    {
+      "name": "layer3.wfc2",
+      "shape": [
+        1408,
+        352
+      ]
+    },
+    {
+      "name": "layer3.bfc2",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer4.ln1g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer4.ln1b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer4.wq",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer4.bq",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer4.wk",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer4.bk",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer4.wv",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer4.bv",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer4.wo",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer4.bo",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer4.ln2g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer4.ln2b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer4.wfc1",
+      "shape": [
+        352,
+        1408
+      ]
+    },
+    {
+      "name": "layer4.bfc1",
+      "shape": [
+        1408
+      ]
+    },
+    {
+      "name": "layer4.wfc2",
+      "shape": [
+        1408,
+        352
+      ]
+    },
+    {
+      "name": "layer4.bfc2",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer5.ln1g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer5.ln1b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer5.wq",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer5.bq",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer5.wk",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer5.bk",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer5.wv",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer5.bv",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer5.wo",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer5.bo",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer5.ln2g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer5.ln2b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer5.wfc1",
+      "shape": [
+        352,
+        1408
+      ]
+    },
+    {
+      "name": "layer5.bfc1",
+      "shape": [
+        1408
+      ]
+    },
+    {
+      "name": "layer5.wfc2",
+      "shape": [
+        1408,
+        352
+      ]
+    },
+    {
+      "name": "layer5.bfc2",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer6.ln1g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer6.ln1b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer6.wq",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer6.bq",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer6.wk",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer6.bk",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer6.wv",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer6.bv",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer6.wo",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer6.bo",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer6.ln2g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer6.ln2b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer6.wfc1",
+      "shape": [
+        352,
+        1408
+      ]
+    },
+    {
+      "name": "layer6.bfc1",
+      "shape": [
+        1408
+      ]
+    },
+    {
+      "name": "layer6.wfc2",
+      "shape": [
+        1408,
+        352
+      ]
+    },
+    {
+      "name": "layer6.bfc2",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer7.ln1g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer7.ln1b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer7.wq",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer7.bq",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer7.wk",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer7.bk",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer7.wv",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer7.bv",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer7.wo",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer7.bo",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer7.ln2g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer7.ln2b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer7.wfc1",
+      "shape": [
+        352,
+        1408
+      ]
+    },
+    {
+      "name": "layer7.bfc1",
+      "shape": [
+        1408
+      ]
+    },
+    {
+      "name": "layer7.wfc2",
+      "shape": [
+        1408,
+        352
+      ]
+    },
+    {
+      "name": "layer7.bfc2",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer8.ln1g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer8.ln1b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer8.wq",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer8.bq",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer8.wk",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer8.bk",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer8.wv",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer8.bv",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer8.wo",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer8.bo",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer8.ln2g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer8.ln2b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer8.wfc1",
+      "shape": [
+        352,
+        1408
+      ]
+    },
+    {
+      "name": "layer8.bfc1",
+      "shape": [
+        1408
+      ]
+    },
+    {
+      "name": "layer8.wfc2",
+      "shape": [
+        1408,
+        352
+      ]
+    },
+    {
+      "name": "layer8.bfc2",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer9.ln1g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer9.ln1b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer9.wq",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer9.bq",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer9.wk",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer9.bk",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer9.wv",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer9.bv",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer9.wo",
+      "shape": [
+        352,
+        352
+      ]
+    },
+    {
+      "name": "layer9.bo",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer9.ln2g",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer9.ln2b",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "layer9.wfc1",
+      "shape": [
+        352,
+        1408
+      ]
+    },
+    {
+      "name": "layer9.bfc1",
+      "shape": [
+        1408
+      ]
+    },
+    {
+      "name": "layer9.wfc2",
+      "shape": [
+        1408,
+        352
+      ]
+    },
+    {
+      "name": "layer9.bfc2",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "lnFg",
+      "shape": [
+        352
+      ]
+    },
+    {
+      "name": "lnFb",
+      "shape": [
+        352
+      ]
+    }
+  ]
+}
