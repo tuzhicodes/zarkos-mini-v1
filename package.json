@@ -1,23 +1,29 @@
 {
   "name": "zarkos-mini-v1",
-  "version": "1.0.0",
-  "description": "ZarKos Mini v1 - a from-scratch decoder-only transformer language model, trained and served entirely in Node.js",
+  "version": "1.1.3",
+  "description": "ZarKos Mini v1 — a real, from-scratch decoder-only transformer built and trained entirely in Node.js by TuZhi Codes.",
   "main": "index.js",
   "type": "commonjs",
-  "license": "MIT",
-  "engines": {
-    "node": ">=18"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tuzhicodes/zarkos-mini-v1.git"
   },
+  "author": "TuZhi Codes",
+  "license": "MIT",
   "scripts": {
     "start": "node index.js",
     "train": "node index.js train",
     "serve": "node index.js serve",
     "chat": "node index.js chat",
-    "eval": "node index.js eval"
+    "eval": "node index.js eval",
+    "verify": "node verify_device.js"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
     "dotenv": "^16.6.1",
     "express": "^4.22.2"
+  },
+  "optionalDependencies": {
+    "@tensorflow/tfjs-node-gpu": "4.22.0"
   }
 }
