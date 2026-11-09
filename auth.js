@@ -77,8 +77,19 @@ function getSession(req) {
   return { token, ...session };
 }
 
-function setSessionCookie(res, token) {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+function setSessionCookie(res, token, req) {
+  const cookieSecureEnv = String(process.env.COOKIE_SECURE || 'auto').trim().toLowerCase();
+  let isHttps = false;
+  if (cookieSecureEnv === 'true') {
+    isHttps = true;
+  } else if (cookieSecureEnv === 'false') {
+    isHttps = false;
+  } else {
+    const proto = (req && req.headers['x-forwarded-proto']) || '';
+    isHttps = proto.split(',')[0].trim() === 'https';
+    if (!proto && process.env.NODE_ENV === 'production') isHttps = true;
+  }
+  const secure = isHttps ? '; Secure' : '';
   res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`);
 }
 
@@ -125,7 +136,7 @@ function login(req, res) {
   }
   clearLoginFailures(req);
   const token = createSession(username);
-  setSessionCookie(res, token);
+  setSessionCookie(res, token, req);
   res.json({ ok: true, username });
 }
 
