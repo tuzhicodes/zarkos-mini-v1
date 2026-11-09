@@ -23,6 +23,8 @@ const {
 const projectRoot = path.join(__dirname, '..');
 const app = express();
 
+app.set('trust proxy', 1);
+
 app.use(express.json({ limit: '256kb' }));
 app.use((req, res, next) => {
   const origin = process.env.API_CORS_ORIGIN || '*';
@@ -180,8 +182,28 @@ function logRequest(label, { statusCode, errorMessage, req, userMsg, aiMsg }) {
   console.log(`${statusLine}\n - ip=${ip} ua=${ua}\nUSER: ${u}\nAI: ${a}\n`);
 }
 
+let _inferenceRunning = false;
+const _inferenceQueue = [];
+
+function _drainQueue() {
+  if (_inferenceRunning || _inferenceQueue.length === 0) return;
+  _inferenceRunning = true;
+  const { fn, resolve, reject } = _inferenceQueue.shift();
+  fn().then(resolve, reject).finally(() => {
+    _inferenceRunning = false;
+    _drainQueue();
+  });
+}
+
+function enqueueInference(fn) {
+  return new Promise((resolve, reject) => {
+    _inferenceQueue.push({ fn, resolve, reject });
+    _drainQueue();
+  });
+}
+
 function generateFromRequest(body) {
-  if (!ready) throw new Error('Model not loaded. Train it first.');
+  if (!ready) throw Object.assign(new Error('Model not loaded. Train it first.'), { statusCode: 503 });
   const message = typeof body?.message === 'string' ? body.message.trim() : '';
   if (!message) throw Object.assign(new Error('Missing "message" string in request body.'), { statusCode: 400 });
   if (message.length > 8000) throw Object.assign(new Error('Message is too long. Maximum length is 8000 characters.'), { statusCode: 400 });
@@ -192,10 +214,10 @@ function generateFromRequest(body) {
   });
 }
 
-app.post('/api/chat', requireApiKey, (req, res) => {
+app.post('/api/chat', requireApiKey, async (req, res) => {
   const rawMessage = typeof req.body?.message === 'string' ? req.body.message : '';
   try {
-    const reply = generateFromRequest(req.body || {});
+    const reply = await enqueueInference(() => generateFromRequest(req.body || {}));
     logRequest('api/chat', { statusCode: 200, req, userMsg: rawMessage, aiMsg: reply });
     res.json({ reply });
   } catch (err) {
@@ -222,7 +244,7 @@ app.get('/v1/models', requireApiKey, (req, res) => {
   });
 });
 
-app.post('/v1/chat/completions', requireApiKey, (req, res) => {
+app.post('/v1/chat/completions', requireApiKey, async (req, res) => {
   const body = req.body || {};
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const lastUser = [...messages].reverse().find((m) => m && m.role === 'user' && typeof m.content === 'string');
@@ -236,14 +258,14 @@ app.post('/v1/chat/completions', requireApiKey, (req, res) => {
       .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
       .map((m) => ({ role: m.role, content: m.content }));
 
-    const reply = generateFromRequest({
+    const reply = await enqueueInference(() => generateFromRequest({
       ...body,
       message: lastUser.content,
       history,
       topK: body.top_k,
       maxNewTokens: body.max_tokens,
       repetitionPenalty: body.repetition_penalty,
-    });
+    }));
 
     logRequest('v1/chat/completions', { statusCode: 200, req, userMsg: rawMessage, aiMsg: reply });
 
