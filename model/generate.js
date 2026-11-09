@@ -74,7 +74,9 @@ function blockTokens(logits1D, blockedSet) {
   return tf.tensor1d(arr);
 }
 
-function generateReply(model, tokenizer, config, userMessage, opts = {}) {
+const yieldToEventLoop = () => new Promise((resolve) => setImmediate(resolve));
+
+async function generateReply(model, tokenizer, config, userMessage, opts = {}) {
   const {
     maxNewTokens = 100,
     temperature = 0.8,
@@ -102,6 +104,8 @@ function generateReply(model, tokenizer, config, userMessage, opts = {}) {
   const genStart = ids.length;
 
   for (let step = 0; step < maxNewTokens; step++) {
+    await yieldToEventLoop();
+
     const context = ids.slice(-config.contextLength);
     const seqLen = context.length;
 
