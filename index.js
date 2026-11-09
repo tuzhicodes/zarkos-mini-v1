@@ -42,7 +42,7 @@ async function chatOnce() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   const ask = () =>
-    rl.question(banner.boldGreen('You: '), (msg) => {
+    rl.question(banner.boldGreen('You: '), async (msg) => {
       const cmd = msg.trim().toLowerCase();
       if (cmd === '/exit' || cmd === 'exit') {
         rl.close();
@@ -50,7 +50,7 @@ async function chatOnce() {
       }
       process.stdout.write(banner.boldGreen('Bot: '));
       const maxTokens = Number(process.env.MAX_NEW_TOKENS) || 30;
-      generateReply(model, tokenizer, config, msg, {
+      await generateReply(model, tokenizer, config, msg, {
         maxNewTokens: maxTokens,
         onToken: (tok) => process.stdout.write(banner.white(tok)),
       });
@@ -95,7 +95,7 @@ async function evalOnce() {
   console.log('--- Fixed-prompt eval (greedy decoding, temperature≈0) ---\n');
   for (const prompt of EVAL_PROMPTS) {
     process.stdout.write(`> ${prompt}\n`);
-    generateReply(model, tokenizer, config, prompt, {
+    await generateReply(model, tokenizer, config, prompt, {
       maxNewTokens: 25,
       temperature: 0,
       topK: 1,
