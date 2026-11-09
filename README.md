@@ -3,52 +3,191 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org/)
 [![TensorFlow.js](https://img.shields.io/badge/Engine-TensorFlow.js-orange.svg)](https://js.tensorflow.org/)
-[![Parameters](https://img.shields.io/badge/Parameters-18.10M-purple.svg)](#architecture-specifications)
-[![Backend](https://img.shields.io/badge/Backend-CPU%20%7C%20CUDA%20GPU-darkblue.svg)](#compute-backend)
+[![Parameters](https://img.shields.io/badge/Parameters-18.10M-purple.svg)](#technical-specifications)
+[![Backend](https://img.shields.io/badge/Backend-CPU%20%7C%20CUDA%20GPU-darkblue.svg)](#hardware-and-device-modes)
 
-**ZarKos Mini v1** is a decoder-only Transformer language model built from scratch in Node.js using TensorFlow.js tensor primitives.
+**ZarKos Mini v1** is a self-contained, decoder-only Transformer language model built from scratch in Node.js using TensorFlow.js tensor primitives.
 
-Most JavaScript machine learning projects are either API wrappers or Python child processes. ZarKos Mini v1 is a ground-up neural network implementation written in JavaScript: multi-head causal self-attention, layer normalization, BPE tokenization, loss masking, gradient updates, and token sampling run natively in Node.js.
-
-The repository includes pre-trained weights in `checkpoint/` so you can clone and test the model immediately without training from scratch.
+It is designed to run everywhere with zero native build hassles:
+- **Terminal Chat**: Test responses directly on your command line.
+- **Web Dashboard**: Interactive training monitor and status overview.
+- **OpenAI-Compatible API**: Plug the model directly into existing AI apps, chat frontends, or automation scripts.
+- **Multi-User Ready**: Built-in non-blocking token generation and serialized inference queue to prevent crashes under concurrent requests.
 
 ---
 
-## Transformer Architecture
+## Table of Contents
+1. [Beginner Quickstart](#beginner-quickstart)
+2. [Hosting & Deployment Guide](#hosting--deployment-guide)
+3. [Connecting from External AI Apps](#connecting-from-external-ai-apps)
+4. [CLI Commands](#cli-commands)
+5. [Technical Specifications](#technical-specifications)
+6. [Hardware and Device Modes](#hardware-and-device-modes)
+7. [Training Your Own Data](#training-your-own-data)
+8. [Project Structure](#project-structure)
+9. [Author & License](#author--license)
 
+---
+
+## Beginner Quickstart
+
+Follow these steps to get ZarKos Mini running on your local computer or phone (Termux) in under 2 minutes:
+
+### Step 1: Install Dependencies
+Make sure you have [Node.js](https://nodejs.org/) (v18 or higher) installed, then run:
+
+```bash
+git clone https://github.com/tuzhi/zarkos-mini-v1.git
+cd zarkos-mini-v1
+npm install
 ```
-Input Tokens: [ <|user|> ... <|end|><|assistant|> ]
-       │
-       ▼
-┌──────────────────────────────────────────────┐
-│  Token Embedding (wte: 9000 × 352)           │
-│  + Positional Embedding (wpe: 56 × 352)      │
-└──────────────────────────────────────────────┘
-       │
-       ▼  [Residual Stream: 352-dim]
-┌──────────────────────────────────────────────┐ ──┐
-│  1. Pre-Layer Normalization (ln1)            │   │
-│  2. Causal Multi-Head Attention (8 heads)    │   │
-│     - Scaled Dot-Product: Q × K^T / √d_k     │   │  Repeated
-│     - Lower-triangular Causal Attention Mask │   │  across
-│     - Head projection & Output Linear (wo)   │   │  10 Layers
-│  3. Residual Addition (x + attn)             │   │  (nLayer = 10)
-│  4. Pre-Layer Normalization (ln2)            │   │
-│  5. Feed-Forward Network (FFN: 352 → 1408)   │   │
-│     - GELU Activation Function               │   │
-│     - Linear Projection (1408 → 352)         │   │
-│  6. Residual Addition (x + ffn)              │   │
-└──────────────────────────────────────────────┘ ──┘
-       │
-       ▼
-┌──────────────────────────────────────────────┐
-│  Final Layer Normalization (lnF)             │
-│  Weight-Tied Output Projection (wte^T)       │
-└──────────────────────────────────────────────┘
-       │
-       ▼
-Logits (Batch × SeqLen × 9000) ──► Sampling Engine (Top-K / Temp / Repetition Penalty)
+
+### Step 2: Set Up Configuration
+Copy the sample environment file to create your local `.env`:
+
+```bash
+cp .env.example .env
 ```
+
+Open `.env` in any text editor and adjust your credentials:
+```env
+PORT=3000
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=create-a-secure-password
+MODEL_API_KEY=create-your-secret-key
+```
+
+### Step 3: Start Chatting
+
+#### Option A: Chat in your Terminal
+```bash
+npm run chat
+```
+Type any prompt and watch the model stream tokens live in your terminal. Type `/exit` to quit.
+
+#### Option B: Run the Web Dashboard and API
+```bash
+npm start
+```
+Open your browser and navigate to:
+```
+http://localhost:3000
+```
+Log in using the `ADMIN_USERNAME` and `ADMIN_PASSWORD` you configured in your `.env`.
+
+---
+
+## Hosting & Deployment Guide
+
+ZarKos Mini v1 can be hosted on cloud providers like Render, Railway, Fly.io, or any Ubuntu/Debian VPS.
+
+### 1. Crucial Checkpoint Files
+Make sure your `checkpoint/` directory includes all 4 essential files:
+- `manifest.json`: Model architecture and tensor configurations.
+- `tokenizer.json`: BPE token mappings.
+- `meta.json`: Step counts and training progress.
+- `weights.bin`: The trained model weights (~70 MB binary file).
+
+> **Important**: When uploading to hosting platforms (like Render or Railway), ensure `checkpoint/weights.bin` is included in your deployment so the server can load the model into memory.
+
+### 2. Environment Variables on Hosting
+Set these in your hosting provider's dashboard:
+
+| Variable | Recommended Value | Notes |
+| :--- | :--- | :--- |
+| `PORT` | Set automatically or `3000` | Port assigned by host |
+| `HOST` | `0.0.0.0` | Allows incoming public connections |
+| `ADMIN_USERNAME` | `your-admin-user` | For web dashboard login |
+| `ADMIN_PASSWORD` | `your-strong-password` | For web dashboard login |
+| `MODEL_API_KEY` | `your-secret-api-key` | Required to access `/api/chat` and `/v1/chat/completions` |
+| `API_CORS_ORIGIN` | `*` | Enables cross-origin browser requests |
+| `DEVICE` | `cpu` | Use `gpu` only if you have NVIDIA CUDA |
+
+### 3. Reverse Proxies & HTTPS
+The server includes automatic proxy trust and HTTPS cookie detection (`x-forwarded-proto`), ensuring dashboard sessions and API routes work out of the box behind cloud load balancers.
+
+---
+
+## Connecting from External AI Apps
+
+You can use ZarKos Mini v1 as a drop-in replacement for any service expecting an OpenAI-compatible API.
+
+* **Base URL**: `http://<your-host>:<port>/v1`
+* **API Key Header**: `Authorization: Bearer <your-MODEL_API_KEY>` (or `x-api-key: <your-MODEL_API_KEY>`)
+
+### 1. cURL Example
+```bash
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-secret-api-key" \
+  -d '{
+    "model": "tuzhi/zarkos-mini-v1",
+    "messages": [
+      {"role": "user", "content": "Hello! Tell me a short story."}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 50
+  }'
+```
+
+### 2. Python (`openai` SDK)
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:3000/v1",
+    api_key="your-secret-api-key"
+)
+
+response = client.chat.completions.create(
+    model="tuzhi/zarkos-mini-v1",
+    messages=[{"role": "user", "content": "What is 5 + 7?"}],
+    max_tokens=30,
+    temperature=0.7
+)
+
+print(response.choices[0].message.content)
+```
+
+### 3. JavaScript / Node.js
+```javascript
+const response = await fetch("http://localhost:3000/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer your-secret-api-key"
+  },
+  body: JSON.stringify({
+    model: "tuzhi/zarkos-mini-v1",
+    messages: [{ role: "user", content: "Explain how solar energy works." }],
+    max_tokens: 60
+  })
+});
+
+const data = await response.json();
+console.log(data.choices[0].message.content);
+```
+
+### 4. Direct Chat Endpoint (`/api/chat`)
+For simple integrations without the full OpenAI schema:
+```bash
+curl -X POST http://localhost:3000/api/chat \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your-secret-api-key" \
+  -d '{"message": "Hello!", "maxNewTokens": 30}'
+```
+
+---
+
+## CLI Commands
+
+| Command | Action | Description |
+| :--- | :--- | :--- |
+| `npm start` | **Serve** | Starts the web UI dashboard and API server |
+| `npm run chat` | **Chat** | Starts real-time interactive terminal chat with live streaming |
+| `node index.js eval` | **Eval** | Runs fixed prompts with deterministic greedy decoding |
+| `npm run train` | **Train** | Starts or resumes training on `data/*.jsonl` |
+| `node verify_device.js` | **Verify** | Confirms active TensorFlow backend and hardware device |
 
 ---
 
@@ -57,210 +196,80 @@ Logits (Batch × SeqLen × 9000) ──► Sampling Engine (Top-K / Temp / Repet
 | Parameter | Specification | Details |
 | :--- | :--- | :--- |
 | **Model Type** | Decoder-only Transformer | Autoregressive language modeling |
-| **Total Parameters** | **18,103,136** (~18.10M) | All trainable variables (`tf.Variable`) |
+| **Total Parameters** | **18,103,136** (~18.10M) | Trainable variables |
 | **Number of Layers** | 10 | Sequential Transformer blocks |
 | **Attention Heads** | 8 | Dimension per head: `352 / 8 = 44` |
 | **Embedding Dimension** | 352 | Hidden representation width |
-| **Feed-Forward Dimension** | 1408 | 4× expansion factor |
+| **Feed-Forward Dimension** | 1408 | 4× expansion factor with GELU |
 | **Context Length** | 56 tokens | Bounded sliding window |
 | **Vocabulary Size** | 9,000 tokens | Custom Byte-Pair Encoding (BPE) |
-| **Weight Tying** | Enabled | Input embedding (`wte`) shared with LM head |
-| **Activation** | GELU | Gaussian Error Linear Unit |
-| **Normalization** | Pre-LN | Pre-Layer Normalization for stable gradients |
-| **Inference Weight Size** | ~70 MB | Float32 raw binary buffer (`weights.bin`) |
+| **Weight Tying** | Enabled | Input embedding (`wte`) shared with output projection |
+| **Weights Buffer** | ~70 MB | Contiguous binary float buffer (`weights.bin`) |
 
 ---
 
-## Quickstart
+## Hardware and Device Modes
 
-### Prerequisites
-* [Node.js](https://nodejs.org/) v18.0.0 or higher
-* npm or pnpm
-
-### 1. Clone & Setup
-```bash
-git clone https://github.com/tuzhicodes/zarkos-mini-v1.git
-cd zarkos-mini-v1
-npm install
-cp .env.example .env
-```
-
-### 2. Run Interactive Terminal Chat
-```bash
-npm run chat
-```
-The model loads `checkpoint/` into memory and begins streaming responses with live token-by-token output.
-
-### 3. Start Web UI & API Server
-```bash
-npm start
-```
-* **Dashboard URL:** `http://localhost:24705`
-* **Default Username:** `admin`
-* **Default Password:** `change-this-password` *(configured in `.env`)*
-
----
-
-## CLI Reference
-
-| Command | Action | Description |
-| :--- | :--- | :--- |
-| `npm start` | **Serve** | Starts the Express web server and OpenAI API |
-| `npm run chat` | **Chat** | Real-time terminal chat with streaming text |
-| `node index.js eval` | **Eval** | Runs fixed greedy-decoding prompts to benchmark checkpoints |
-| `npm run train` | **Train** | Starts or resumes training on `data/*.jsonl` |
-| `node verify_device.js` | **Verify** | Tests TensorFlow backend and GPU/CPU tensor execution |
-
----
-
-## Inference API
-
-ZarKos Mini v1 provides an OpenAI-compatible interface alongside a lightweight JSON endpoint.
-
-All API requests require authentication via the `MODEL_API_KEY` environment variable.
-
-### OpenAI Compatibility Endpoint (`/v1/chat/completions`)
-
-#### cURL
-```bash
-curl -X POST http://localhost:24705/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer change-this-api-key" \
-  -d '{
-    "model": "tuzhi/zarkos-mini-v1",
-    "messages": [
-      {"role": "user", "content": "What is 5 + 7?"}
-    ],
-    "temperature": 0.7,
-    "max_tokens": 40
-  }'
-```
-
-#### Python (`openai` client)
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://localhost:24705/v1",
-    api_key="change-this-api-key"
-)
-
-response = client.chat.completions.create(
-    model="tuzhi/zarkos-mini-v1",
-    messages=[{"role": "user", "content": "Hello!"}],
-    max_tokens=30
-)
-
-print(response.choices[0].message.content)
-```
-
-#### Node.js (`fetch`)
-```javascript
-const res = await fetch('http://localhost:24705/v1/chat/completions', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer change-this-api-key'
-  },
-  body: JSON.stringify({
-    model: 'tuzhi/zarkos-mini-v1',
-    messages: [{ role: 'user', content: 'What is photosynthesis?' }]
-  })
-});
-const data = await res.json();
-console.log(data.choices[0].message.content);
-```
-
----
-
-## Generation & Anti-Repetition Engine
-
-Small language models are structurally vulnerable to repeating n-grams or falling into token loops. ZarKos Mini v1 implements a three-tier defense pipeline in `model/generate.js`:
-
-1. **HuggingFace-style N-Gram Blocking (`noRepeatNgramSize = 3`)**: Continuously monitors generated tokens. If a candidate token would complete an already seen 3-gram, its logit is clamped to `-Infinity`.
-2. **Multiplicative Repetition Penalty**: CTRL-style penalty dividing positive logits and multiplying negative logits for tokens present in context.
-3. **Frequency & Presence Penalty**: OpenAI-style linear penalty scaling directly with token occurrence count.
-4. **Token Streaming**: Real-time asynchronous token decoding (`decodeToken()`) without memory buffering.
-
----
-
-## Training Pipeline
-
-### Dataset Format
-Conversations are read from `data/*.jsonl`. Every entry is a JSON object with a standard message history:
-
-```json
-{"messages": [{"role": "user", "content": "Hello!"}, {"role": "assistant", "content": "Hello! How can I help you today?"}]}
-{"messages": [{"role": "user", "content": "What is 5 + 7?"}, {"role": "assistant", "content": "5 + 7 equals 12."}]}
-```
-
-The loader automatically splits 5% of conversations into a held-out validation set.
-
-### Tokenizer
-A pure JavaScript Byte-Pair Encoding (BPE) tokenizer merges character pairs greedily until reaching the target vocabulary (`VOCAB_SIZE=9000`). Merges and vocabulary are serialized to `tokenizer.json`.
-
----
-
-## Compute Backend
-
-Hardware acceleration is configured via `DEVICE` in `.env`:
+Configure `DEVICE` in your `.env` file:
 
 ```env
-# Pure JS CPU execution (Termux, macOS, generic Linux servers)
+# Pure JS CPU execution (Termux, macOS, generic cloud hosting, VPS)
 DEVICE=cpu
 
-# Native NVIDIA CUDA acceleration (Linux x86_64 server with CUDA/cuDNN)
+# Native NVIDIA CUDA acceleration (Linux x86_64 server with CUDA installed)
 DEVICE=gpu
 ```
 
-* **GPU Performance (Tesla T4 / RTX 3060+)**: Runs at ~15–20 steps/second with `@tensorflow/tfjs-node-gpu`.
-* **CPU Portability**: Runs with zero native dependencies on Android (Termux), Apple Silicon, and lightweight VPS instances.
-* **Format Portability**: Checkpoint files (`weights.bin`, `manifest.json`) are binary-identical across platforms. A model trained on a GPU cluster can be directly executed on a mobile phone without conversion.
+- **CPU Mode**: Runs out of the box on Android (Termux), Apple Silicon, and cheap VPS servers without compiling C++ binaries.
+- **GPU Mode**: Uses `@tensorflow/tfjs-node-gpu` for high-throughput training on desktop/server NVIDIA cards.
+- **Checkpoint Compatibility**: Checkpoints are binary-identical across CPU and GPU backends.
 
 ---
 
-## Checkpoint Format
+## Training Your Own Data
 
-Checkpoints are stored in `checkpoint/`:
+### 1. Add Data
+Place your JSONL files into the `data/` directory. Each line must be a JSON object containing a `messages` array:
 
-```
-checkpoint/
-├── manifest.json      # Tensor shapes, dtypes, and byte offsets
-├── tokenizer.json     # BPE vocabulary and merge priority table
-├── meta.json          # Training epoch, global step, and validation loss
-└── weights.bin        # Contiguous Float32 buffer of model weights (~70 MB)
+```json
+{"messages": [{"role": "user", "content": "Hello!"}, {"role": "assistant", "content": "Hi there! How can I help?"}]}
+{"messages": [{"role": "user", "content": "What is 2+2?"}, {"role": "assistant", "content": "2 + 2 = 4."}]}
 ```
 
-*(Note: `optimizer.bin` contains Adam momentum accumulators for resuming training; it is excluded from git commits to keep the repository clone small.)*
+### 2. Run Training
+```bash
+npm run train
+```
+The trainer splits 5% for validation and automatically saves checkpoints to `checkpoint/` every 500 steps.
 
 ---
 
-## Directory Layout
+## Project Structure
 
 ```
-├── .env.example         # Environment template
-├── .gitignore            # Git exclusion rules
-├── package.json          # Node.js project configuration
-├── index.js              # Command-line entry point (train, serve, chat, eval)
-├── verify_device.js      # Hardware verification script
-├── add_tokens.js         # Checkpoint vocabulary expansion utility
-├── auth.js               # Web UI session authentication
-├── test.js               # CLI test client
-├── checkpoint/           # Model weights and BPE dictionary
-├── data/                 # Training JSONL files (example.jsonl included)
+├── .env.example         # Template for environment configuration
+├── index.js              # Primary CLI entry point
+├── auth.js               # Session auth and API key verification
+├── package.json          # Node dependencies and scripts
+├── verify_device.js      # Device diagnostics script
+├── checkpoint/           # Model weights, tokenizer, and manifest
+│   ├── manifest.json
+│   ├── meta.json
+│   ├── tokenizer.json
+│   └── weights.bin
+├── data/                 # Training dataset files (.jsonl)
 ├── model/
-│   ├── banner.js         # Terminal diagnostics & banners
 │   ├── checkpoint.js     # Binary weight reader and writer
-│   ├── config.js         # Hyperparameter validator
-│   ├── dataset.js        # Windowing, padding, and loss masking
-│   ├── generate.js       # Sampling and generation engine
-│   ├── tf.js             # Device backend dispatcher
-│   ├── tokenizer.js      # Byte-Pair Encoding implementation
+│   ├── config.js         # Hyperparameters and settings
+│   ├── dataset.js        # Data windowing and batching
+│   ├── generate.js       # Asynchronous token generation engine
+│   ├── tf.js             # Device backend loader
+│   ├── tokenizer.js      # Byte-Pair Encoding tokenizer
 │   ├── train.js          # Optimization loop and validation
-│   └── transformer.js    # Multi-head attention & Transformer core
+│   └── transformer.js    # Self-attention and Transformer implementation
 └── ui/
-    ├── server.js         # HTTP server, dashboard, and OpenAI API
-    └── public/           # PWA assets (HTML, CSS, service worker)
+    ├── server.js         # API server, dashboard backend, and inference queue
+    └── public/           # Dashboard static web files
 ```
 
 ---
